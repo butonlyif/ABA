@@ -1,0 +1,162 @@
+# ABA智能助手 - Docker Compose 配置
+# 用法：在服务器上 `cd` 到项目根目录后执行：
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# 三个 service：
+#   aba-assistant  面向用户，监听公网 8501（家长访问）
+#   aba-admin      运营/专家后台，只绑 127.0.0.1:8502（必须走 SSH 隧道访问）
+#   life-coach     人生教练模块，只绑 127.0.0.1:8503（通过主应用 iframe 嵌入访问）
+
+services:
+  aba-assistant:
+    build:
+      context: ..              # 项目根目录（deploy/.. = AI_codex/）
+      dockerfile: deploy/Dockerfile
+    image: aba-assistant:latest
+    container_name: aba-assistant
+    restart: always
+
+    ports:
+      # 宿主机 8501 → 容器 8501
+      # 想换端口时改前面那个数字即可，比如 "80:8501"（容器对外用 80）
+      - "8501:8501"
+
+    env_file:
+      # 把项目里的 src/MVP_web/.env 直接注入容器，无需重新维护一份
+      - ../src/MVP_web/.env
+
+    # 人生教练相关配置直接写在 compose（environment 优先级高于 env_file），
+    # 这样无需在服务器上手动编辑 .env。换服务器/域名时改这两行即可。
+    # 以下变量从 deploy/deploy.env 插值注入（该文件不入库，由 deploy.sh 下发）。
+    # 缺失时用 :? 让 compose 直接报错，避免空密钥静默上线。
+    environment:
+      # 用户浏览器加载教练 iframe 的公网地址（不能是 localhost）
+      - LIFE_COACH_URL=${LIFE_COACH_URL:?需在 deploy/deploy.env 设置 LIFE_COACH_URL}
+      # 主应用↔人生教练 免密跳转的共享签名密钥（防止凭用户名冒充）
+      - COACH_SSO_SECRET=${COACH_SSO_SECRET:?需在 deploy/deploy.env 设置 COACH_SSO_SECRET}
+      # 容器内做可用性检查的地址：localhost 在容器里指自己，必须用 compose 服务名 life-coach
+      - COACH_HEALTH_URL=${COACH_HEALTH_URL:-http://life-coach:8503/_stcore/health}
+
+    volumes:
+      # 用户档案 + chromadb 索引持久化到宿主机 deploy/data/
+      # 容器重建/升级时数据不会丢
+      - ./data:/app/src/MVP_web/data
+      # 知识库（持久化在服务器 ~/AI_codex/知识库/）
+      - ../docs/知识库:/app/docs/知识库/:ro
+      # ABA 图片卡 PDF（1.7GB，不打进镜像，挂载宿主机目录）
+      # 部署前需先 rsync：bash deploy/deploy.sh 会自动同步
+      - ../src/aba/图片:/app/src/aba/图片:ro
+      # 开放版权图标卡（OpenMoji 生成，体积小）
+      - ../src/aba/图片卡_网络素材:/app/src/aba/图片卡_网络素材:ro
+
+    # 健康检查：8501 端口能 HTTP 200 即认为活着
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    # 资源限制：2核4G 的机器留点余量给系统
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+  aba-admin:
+    # 复用主 app 同一个镜像（节省构建时间和磁盘空间）
+    # 必须等 aba-assistant 镜像 build 完之后才有这个 image
+    image: aba-assistant:latest
+    container_name: aba-admin
+    restart: always
+    depends_on:
+      - aba-assistant
+
+    ports:
+      # 关键：只绑 127.0.0.1，不对公网暴露
+      # 访问方式：在本地机器 `ssh -L 8502:127.0.0.1:8502 your-server`
+      - "127.0.0.1:8502:8502"
+
+    env_file:
+      - ../src/MVP_web/.env
+
+    # 把后台需要的密码 / LLM key 从 .env 注入
+    # ABA_ADMIN_PASSWORD 必须设，否则 admin_app 启动时会拒绝
+    # MINIMAX_API_KEY 用于 AI 草稿；不设也能起，只是草稿功能不可用
+
+    volumes:
+      # 关键：共享同一个 data volume，admin 才能读到主 app 写的 memory.db
+      # 后台只读 memory.db，但会写入 admin_vectors/、exports/、drafts/
+      - ./data:/app/src/MVP_web/data
+      - ../docs/知识库:/app/docs/知识库/:ro
+      - ../src/aba/图片:/app/src/aba/图片:ro
+      - ../src/aba/图片卡_网络素材:/app/src/aba/图片卡_网络素材:ro
+
+    # 覆盖 Dockerfile 的默认 CMD，启动 admin_app.py
+    # --server.address=0.0.0.0 是容器内部监听；公网入口已经被 ports 那行限制在 127.0.0.1
+    command: >
+      streamlit run admin_app.py
+      --server.address=0.0.0.0
+      --server.port=8502
+      --server.headless=true
+      --browser.gatherUsageStats=false
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8502/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  life-coach:
+    # 人生教练模块 - 复用同一个镜像
+    image: aba-assistant:latest
+    container_name: life-coach
+    restart: always
+    depends_on:
+      - aba-assistant
+
+    ports:
+      # 对公网暴露 8503，供用户浏览器加载主应用里的人生教练 iframe。
+      # 安全前提：人生教练只接受带 COACH_SSO_SECRET 签名 token 的自动登录，
+      # 直接访问 IP:8503 无有效 token 时会回退到账号密码登录页。
+      # 记得在腾讯云安全组放行 8503/TCP。
+      - "8503:8503"
+
+    env_file:
+      - ../src/MVP_web/.env
+
+    environment:
+      # 必须与 aba-assistant 用同一个密钥，才能校验主应用签发的免密登录 token
+      - COACH_SSO_SECRET=${COACH_SSO_SECRET:?需在 deploy/deploy.env 设置 COACH_SSO_SECRET}
+      # 「← 返回 ABA 助手」链接跳回的主应用公网地址
+      - ABA_APP_URL=${ABA_APP_URL:?需在 deploy/deploy.env 设置 ABA_APP_URL}
+
+    volumes:
+      - ./data:/app/src/MVP_web/data
+      - ../docs/知识库:/app/docs/知识库/:ro
+
+    # 启动人生教练应用
+    command: >
+      streamlit run life_coach_app.py
+      --server.address=0.0.0.0
+      --server.port=8503
+      --server.headless=true
+      --browser.gatherUsageStats=false
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8503/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          memory: 1G

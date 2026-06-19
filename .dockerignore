@@ -1,0 +1,46 @@
+# Docker 构建上下文 = 项目根（compose: context: ..）。
+# 这里排除一切「镜像不需要 / 体积大 / 敏感」的东西，避免上传 GB 级上下文、撑大镜像。
+
+# 大体积图片卡（3.5GB）——运行时由 compose 以 volume 挂载，不进镜像
+src/aba/图片/
+src/aba/图片卡_网络素材/
+# aba 下的扫描件 PDF（课程指南/数据表等，运行时用不到）
+src/aba/课程指南/
+src/aba/数据表/
+src/aba/数据收集表/
+
+# 三本书原始扫描件目录（已抽取，源文件不需进镜像）
+初级技能分步训练/
+中级技能分步训练/
+高级技能分步训练/
+docs/课程指南文本/
+
+# 前端构建产物 / 文档周边
+docs/ppt_build/node_modules/
+docs/ppt_build/
+docs/business_plan*/
+docs/user_manual*/
+
+# 用户数据 / 索引（运行时用 volume；索引在镜像内由 ingest 重建）
+**/data/users/
+**/data/chromadb/
+**/data/flashcard_cache/
+**/data/training/
+deploy/data/
+vectordb_index/
+
+# 发布/归档/缓存
+_archive/
+release/output/
+release/build_cache/
+**/__pycache__/
+**/*.pyc
+.git/
+.DS_Store
+**/.DS_Store
+.workbuddy/
+
+# 敏感文件（密钥单独通过 env_file/SSH 注入，绝不进镜像层）
+**/.env
+**/.env.local
+deploy/deploy.env

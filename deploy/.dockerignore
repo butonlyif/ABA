@@ -1,0 +1,21 @@
+# 不要把这些东西打进镜像，否则镜像会膨胀到 GB 级
+
+# 排除 docs 里的 ppt_build 等构建产物，但保留知识库（Dockerfile 构建时需要它预建 RAG 索引）
+docs/*
+!docs/知识库/
+
+# 排除 1.6G 图片卡 PDF（运行时由 docker-compose volume 挂载，不打进镜像）
+src/aba/图片/
+
+release/
+dist/
+_archive/
+**/__pycache__/
+**/*.pyc
+**/.DS_Store
+**/.env.local
+**/data/chromadb/
+**/data/users/
+.git/
+.gitignore
+deploy/data/

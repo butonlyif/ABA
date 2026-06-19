@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "aba-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/wangxin/Documents/bjcontents/AI_codex/src/MVP_web 2>/dev/null; exec /Users/wangxin/bin/python3 -m streamlit run app_prototype.py --server.port 8599 --server.headless true --server.address 127.0.0.1 --browser.gatherUsageStats false"
+      ],
+      "port": 8599
+    }
+  ]
+}
