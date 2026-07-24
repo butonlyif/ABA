@@ -37,7 +37,11 @@ def knowledge_documents() -> list[tuple[str, str]]:
     settings = get_settings()
     root = Path(settings.knowledge_path)
     if not root.is_absolute():
-        root = (Path(__file__).resolve().parents[4] / root).resolve()
+        candidates = [Path("/app/legacy/knowledge")]
+        parents = Path(__file__).resolve().parents
+        if len(parents) > 4:
+            candidates.append(parents[4] / settings.knowledge_path)
+        root = next((c for c in candidates if c.exists()), root)
     documents: list[tuple[str, str]] = []
     if not root.exists():
         return documents

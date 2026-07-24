@@ -6,5 +6,7 @@ COPY apps/api /app
 COPY src/MVP_web/utils /app/legacy/utils
 COPY src/MVP_web/training /app/legacy/training
 COPY src/MVP_web/coach /app/legacy/coach
+COPY src/MVP_web/core /app/legacy/core
+COPY docs/知识库 /app/legacy/knowledge
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

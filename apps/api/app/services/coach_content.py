@@ -3,10 +3,9 @@ from pathlib import Path
 
 
 def _content():
-    root = Path(__file__).resolve().parents[4]
-    legacy = root / "src" / "MVP_web"
+    legacy = Path("/app/legacy")
     if not legacy.exists():
-        legacy = Path("/app/legacy")
+        legacy = Path(__file__).resolve().parents[4] / "src" / "MVP_web"
     if str(legacy) not in sys.path:
         sys.path.insert(0, str(legacy))
     from coach.coach_content import KB_ARTICLES
