@@ -170,7 +170,9 @@ function ChildPage({ child }: { child: Child }) {
     const storageKey = `assessment_key_${child.id}`;
     const existing = localStorage.getItem(storageKey);
     if (existing) return existing;
-    const created = crypto.randomUUID();
+    const created = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+      ? crypto.randomUUID()
+      : "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
     localStorage.setItem(storageKey, created);
     return created;
   });

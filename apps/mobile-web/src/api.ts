@@ -1,6 +1,11 @@
 const API_URL = import.meta.env.VITE_API_URL || "/api/v1";
 const API_ORIGIN = API_URL.startsWith("http") ? new URL(API_URL).origin : "";
 
+function uuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+}
+
 export type Child = {
   id: string;
   name: string;
@@ -99,7 +104,7 @@ export const api = {
   createSession: (childId: string, task: Task) =>
     request<Session>("/training-sessions", {
       method: "POST",
-      headers: { "Idempotency-Key": crypto.randomUUID() },
+      headers: { "Idempotency-Key": uuid() },
       body: JSON.stringify({ child_id: childId, task_id: task.id, skill_name: task.name })
     }),
   addTrial: (sessionId: string, result: string) =>
