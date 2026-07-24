@@ -22,6 +22,7 @@ export type Task = {
   description?: string;
   category: string;
   status: string;
+  sort_order?: number;
 };
 
 export type Session = {
@@ -94,6 +95,11 @@ export const api = {
   createChild: (body: Partial<Child>) => request<Child>("/children", { method: "POST", body: JSON.stringify(body) }),
   setCurrentChild: (childId: string) => request<Child>(`/children/${childId}/current`, { method: "PATCH" }),
   tasks: (childId: string) => request<Task[]>(`/tasks?child_id=${childId}`),
+  deleteTask: (taskId: string) => request<void>(`/tasks/${taskId}`, { method: "DELETE" }),
+  createTask: (body: { child_id: string; name: string; description?: string; category: string }) =>
+    request<Task>("/tasks", { method: "POST", body: JSON.stringify(body) }),
+  reorderTasks: (childId: string, order: { id: string; sort_order: number }[]) =>
+    request<Task[]>("/tasks/reorder", { method: "PATCH", body: JSON.stringify({ child_id: childId, order }) }),
   questions: () => request<{ items: { id: string; domain: string; domain_name: string; level: number; text: string }[] }>("/assessments/questions"),
   submitAssessment: (childId: string, answers: Record<string, number>, idempotencyKey: string) =>
     request("/assessments", {

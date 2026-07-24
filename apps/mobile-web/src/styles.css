@@ -147,6 +147,35 @@ input:focus { border-color: var(--purple); box-shadow: 0 0 0 3px #6750a416; }
 .flashcard-random { width: 38px !important; height: 38px !important; border-color: #e0dce2 !important; color: #7d7683 !important; }
 .flashcard-random:hover:not(:disabled) { background: #eeebf1 !important; color: var(--purple) !important; border-color: var(--purple-soft) !important; }
 .flashcard-counter { font-size: 13px; font-weight: 600; color: #555; min-width: 48px; text-align: center; }
+/* manage button in tabs */
+.manage-btn { border: 1px solid #ddd4e5 !important; background: white !important; color: #7d7683 !important; padding: 8px 12px !important; display: grid !important; place-items: center; }
+.manage-btn.active { background: var(--purple-soft) !important; color: var(--purple) !important; border-color: var(--purple) !important; }
+/* expandable task card */
+.task-card.expandable { cursor: pointer; transition: all .15s; }
+.task-card.expandable:hover { box-shadow: 0 2px 8px #3a29451a; }
+.task-card.expandable.open { background: #faf9fc; border-color: var(--purple-soft); }
+.task-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; }
+.task-sort-btns { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+.task-sort-btns button { width: 22px; height: 18px; border: none; background: none; color: #c4bfcf; font-size: 9px; cursor: pointer; line-height: 1; padding: 0; text-align: center; border-radius: 3px; transition: all .15s; }
+.task-sort-btns button:hover:not(:disabled) { color: var(--purple); background: #eeebf1; }
+.task-sort-btns button:disabled { opacity: .2; cursor: not-allowed; }
+.task-del-btn { width: 28px !important; height: 28px !important; border-radius: 50% !important; background: #fef2f2 !important; color: #dc2626 !important; border: 1px solid #fecaca !important; font-size: 16px !important; font-weight: 500; flex-shrink: 0; transition: all .15s; }
+.task-del-btn:hover { background: #dc2626 !important; color: white !important; }
+/* expanded description */
+.task-expand-body { padding: 10px 14px 12px; border-top: 1px solid #f0edf4; animation: slideDown .2s ease-out; }
+@keyframes slideDown { from{opacity:0;max-height:0} to{opacity:1;max-height:120px} }
+.task-desc-text { font-size: 13px; color: #6b6173; line-height: 1.6; margin-bottom: 8px; word-break: break-word; }
+.task-expand-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.task-cat-tag { font-size: 11px; color: #aaa5b0; background: #f7f5fb; padding: 3px 8px; border-radius: 8px; }
+.task-detail-desc { font-size: 14px; color: #6b6173; line-height: 1.6; margin: -10px auto 14px; max-width: 340px; padding: 0 16px; }
+/* add task form */
+.add-task-form { background: linear-gradient(135deg, #faf9fc, #f3f0fa) !important; border: 2px dashed var(--purple-soft) !important; padding: 16px !important; gap: 10px !important; }
+.add-task-input, .add-task-select { width: 100%; padding: 10px 12px; border: 1px solid #ddd4e5; border-radius: 10px; font-size: 14px; font-family: inherit; outline: none; transition: border-color .15s; box-sizing: border-box; margin-bottom: 6px; background: white; }
+.add-task-input:focus, .add-task-select:focus { border-color: var(--purple); box-shadow: 0 0 0 3px rgba(99,70,138,.08); }
+.add-task-input::placeholder { color: #c4bfcf; }
+.add-task-submit { width: 100%; padding: 11px; font-size: 14px; }
+button.small { padding: 7px 14px; font-size: 13px; }
+.task-manage-footer { text-align: center; padding: 14px 0 4px; }
 .training-live { padding: 52px 2px 0; text-align: center; }
 .training-live h1 { font-size: 30px; margin-bottom: 8px; }
 .training-live > p:not(.eyebrow) { color: #77717d; }

@@ -215,7 +215,12 @@ function ChildPage({ child }: { child: Child }) {
 
 function TrainingPage({ child }: { child: Child }) {
   const [view, setView] = useState<"tasks" | "flashcards">("tasks");
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [manageMode, setManageMode] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [addingTask, setAddingTask] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newCat, setNewCat] = useState("基础能力");
   const { data: tasks = [], isLoading } = useQuery({ queryKey: ["tasks", child.id], queryFn: () => api.tasks(child.id) });
   const [session, setSession] = useState<Session | null>(null);
   const { data: activeSession } = useQuery({ queryKey: ["active-session", child.id], queryFn: () => api.activeSession(child.id) });
@@ -224,13 +229,18 @@ function TrainingPage({ child }: { child: Child }) {
   const trial = useMutation({ mutationFn: (result: string) => api.addTrial(session!.id, result), onSuccess: setSession });
   const undo = useMutation({ mutationFn: () => api.undoTrial(session!.id), onSuccess: setSession });
   const finish = useMutation({ mutationFn: () => api.finishSession(session!.id), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); queryClient.invalidateQueries({ queryKey: ["active-session", child.id] }); } });
+  const delTask = useMutation({ mutationFn: (taskId: string) => api.deleteTask(taskId), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }) });
+  const addTask = useMutation({
+    mutationFn: () => api.createTask({ child_id: child.id, name: newName, description: newDesc || undefined, category: newCat }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); setAddingTask(false); setNewName(""); setNewDesc(""); }
+  });
 
   // 过滤：去掉报告项 + 按完成状态分组
   const realTasks = useMemo(() => tasks.filter(t => !t.name.includes("报告")), [tasks]);
   const activeTasks = useMemo(() => realTasks.filter(t => t.status !== "completed"), [realTasks]);
   const completedTasks = useMemo(() => realTasks.filter(t => t.status === "completed"), [realTasks]);
 
-  // 按分类分组
+  // 按分类分组（保持 sort_order）
   const grouped = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const t of activeTasks) {
@@ -241,9 +251,21 @@ function TrainingPage({ child }: { child: Child }) {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "zh"));
   }, [activeTasks]);
 
+  // 排序操作
+  const moveTask = (taskId: string, direction: -1 | 1) => {
+    const idx = realTasks.findIndex(t => t.id === taskId);
+    if ((direction === -1 && idx === 0) || (direction === 1 && idx === realTasks.length - 1)) return;
+    const newOrder = [...realTasks];
+    [newOrder[idx], newOrder[idx + direction]] = [newOrder[idx + direction], newOrder[idx]];
+    api.reorderTasks(child.id, newOrder.map((t, i) => ({ id: t.id, sort_order: i }))).then(() =>
+      queryClient.invalidateQueries({ queryKey: ["tasks", child.id] })
+    );
+  };
+
   if (session && session.status === "active") return <section className="training-live">
     <button className="back-link" onClick={() => setSession(null)}><ChevronLeft/> 返回任务列表</button>
-    <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1><p>每次呈现刺激后，记录孩子最少辅助下的反应。</p>
+    <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1>
+    <div className="task-detail-desc">{(realTasks.find(t => t.name === session.skill_name) as Task)?.description || "每次呈现刺激后，记录孩子最少辅助下的反应。"}</div>
     <TrainingFlashcard skillName={session.skill_name}/>
     <div className="score-ring"><strong>{session.percentage}%</strong><small>独立正确</small></div>
     <div className="trial-log">{session.trials.map((value, index) => <span className={`trial ${value}`} key={index}>{value}</span>)}</div>
@@ -262,23 +284,57 @@ function TrainingPage({ child }: { child: Child }) {
     <div className="training-tabs">
       <button className={view === "tasks" ? "active" : ""} onClick={() => setView("tasks")}>当前任务 ({activeTasks.length})</button>
       <button className={view === "flashcards" ? "active" : ""} onClick={() => setView("flashcards")}>图片卡</button>
-      {completedTasks.length > 0 && <button className={showCompleted ? "active" : ""} onClick={() => setShowCompleted(!showCompleted)}>已完成 ({completedTasks.length})</button>}
+      <button className={manageMode ? "active manage-btn" : "manage-btn"} onClick={() => setManageMode(!manageMode)} title="管理任务"><PenLine size={14}/></button>
     </div>
     {view === "flashcards" ? <FlashcardCenter/> : isLoading ? <p>正在加载任务…</p> : activeTasks.length === 0 && completedTasks.length === 0 ?
       <section className="empty-state"><Target/><h2>还没有训练任务</h2><p>先去"孩子"页完成能力评估。</p></section> :
       <section className="task-list">
+        {/* 添加新任务 */}
+        {manageMode && addingTask && <article className="task-card add-task-form">
+          <div style={{width:"100%"}}>
+            <input autoFocus placeholder="训练名称（如：模仿拍手）" value={newName} onChange={e => setNewName(e.target.value)} className="add-task-input"/>
+            <textarea placeholder="具体说明（可选，如：家长做拍手动作，孩子模仿。每次只做一个动作。）" value={newDesc} onChange={e => setNewDesc(e.target.value)} rows={2} className="add-task-input"/>
+            <select value={newCat} onChange={e => setNewCat(e.target.value)} className="add-task-select">
+              <option value="基础能力">基础能力</option><option value="参与技能">参与技能</option><option value="模仿技能">模仿技能</option>
+              <option value="语言技能">语言技能</option><option value="语言训练">语言训练</option><option value="社交技能">社交技能</option>
+              <option value="情绪调节技能">情绪调节技能</option><option value="自理技能">自理技能</option><option value="游戏技能">游戏技能</option>
+              <option value="视觉空间技能">视觉空间技能</option><option value="学业前技能">学业前技能</option><option value="粗大动作">粗大动作</option>
+              <option value="行为训练">行为训练</option><option value="其他">其他</option>
+            </select>
+            <div style={{display:"flex",gap:"8px"}}>
+              <button className="primary add-task-submit" disabled={!newName.trim() || addTask.isPending} onClick={() => addTask.mutate()}>添加</button>
+              <button onClick={() => {setAddingTask(false);setNewName("");setNewDesc("")}}>取消</button>
+            </div>
+          </div>
+        </article>}
         {grouped.map(([category, items]) => <div key={category} className="task-group">
           <h3 className="task-group-title">{category}<span>{items.length} 项</span></h3>
-          {items.map(task => <article className={`task-card compact ${task.status}`} key={task.id}>
-            <span className="task-name">{task.name}</span>
-            <button onClick={() => start.mutate(task)} aria-label={`开始${task.name}`}><Play size={16}/></button>
-          </article>)}
+          {items.map((task, i) => {
+            const isExpanded = expandedId === task.id;
+            const globalIdx = realTasks.indexOf(task);
+            return <article key={task.id} className={`task-card compact expandable ${task.status}${isExpanded?" open":""}`}>
+              <div className="task-row" onClick={() => setExpandedId(isExpanded ? null : task.id)}>
+                {manageMode && <div className="task-sort-btns">
+                  <button disabled={globalIdx===0} onClick={(e)=>{e.stopPropagation();moveTask(task.id,-1)}} title="上移">▲</button>
+                  <button disabled={globalIdx>=realTasks.length-1} onClick={(e)=>{e.stopPropagation();moveTask(task.id,1)}} title="下移">▼</button>
+                </div>}
+                <span className="task-name">{task.name}</span>
+                {!manageMode && <button onClick={(e)=>{e.stopPropagation();start.mutate(task)}} aria-label={`开始${task.name}`}><Play size={16}/></button>}
+                {manageMode && <button className="task-del-btn" onClick={(e)=>{e.stopPropagation();delTask.mutate(task.id)}} title="删除">×</button>}
+              </div>
+              {isExpanded && <div className="task-expand-body">
+                <p className="task-desc-text">{task.description || "暂无详细说明"}</p>
+                <div className="task-expand-actions">
+                  <span className="task-cat-tag">{task.category}</span>
+                  {!manageMode && <button className="primary small" onClick={()=>{setExpandedId(null);start.mutate(task)}}>开始训练</button>}
+                </div>
+              </div>}
+            </article>;
+          })}
         </div>)}
-        {showCompleted && completedTasks.length > 0 && <div className="task-group">
-          <h3 className="task-group-title completed-group">已完成<span>{completedTasks.length} 项</span></h3>
-          {completedTasks.map(task => <article className={`task-card compact ${task.status}`} key={task.id}>
-            <span className="task-name done">{task.name}</span><Check size={14}/>
-          </article>)}
+        {/* 管理模式底部按钮 */}
+        {manageMode && <div className="task-manage-footer">
+          <button className="primary" onClick={()=>setAddingTask(true)}><Plus size={14}/> 添加新训练</button>
         </div>}
       </section>}
     {session?.status === "completed" && <div className="success-banner"><Check/> 本次训练已保存，独立正确率 {session.percentage}%</div>}
