@@ -19,7 +19,7 @@ from .database import Base, SessionLocal, engine, get_db
 from .models import AiUsage, Assessment, AuditLog, ChatMessage, Child, ExpertAssignment, ExpertMessage, ExpertProfile, GrowthProgress, JournalEntry, MoodEntry, RefreshToken, Report, SystemEvent, Task, TrainingSession, Trial, User
 from .schemas import (
     AdminPasswordReset, AdminUserCreate, AssessmentOut, AssessmentSubmit, ChatAnswer, ChatOut, ChatRequest, ChildIn, ChildOut, Credentials,
-    ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, ReportOut, ReportRequest, SessionIn, SessionOut, TaskIn,
+    ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, RegisterCredentials, ReportOut, ReportRequest, SessionIn, SessionOut, TaskIn,
     TaskOut, TaskPatch, TokenPair, TrialIn, UserOut,
 )
 from .services.assessment import questions as real_assessment_questions, score_and_tasks
@@ -167,7 +167,7 @@ def open_mobile_web():
 
 
 @app.post("/api/v1/auth/register", response_model=TokenPair, status_code=201)
-def register(body: Credentials, db: Session = Depends(get_db)):
+def register(body: RegisterCredentials, db: Session = Depends(get_db)):
     if db.scalar(select(User).where(User.username == body.username)):
         raise HTTPException(409, "用户名已存在")
     user = User(username=body.username, password_hash=hash_password(body.password))

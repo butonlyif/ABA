@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
@@ -25,7 +25,7 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, stored: str) -> tuple[bool, bool]:
     try:
         return hasher.verify(stored, password), False
-    except VerifyMismatchError:
+    except (VerifyMismatchError, InvalidHashError):
         legacy = hashlib.sha256(f"{password}aba_assistant_salt_2024".encode()).hexdigest()
         return secrets.compare_digest(legacy, stored), secrets.compare_digest(legacy, stored)
     except Exception:

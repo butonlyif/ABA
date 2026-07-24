@@ -49,7 +49,7 @@ function Auth({ mode, setMode, onDone }: { mode: ProductMode; setMode: (mode: Pr
       <label>用户名<input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" /></label>
       <label>密码<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={signup ? "new-password" : "current-password"} /></label>
       {error && <p className="error">{error}</p>}
-      <button className={`primary ${mode === "coach" ? "coach-primary" : ""}`} disabled={username.length < 2 || password.length < 8}>
+      <button className={`primary ${mode === "coach" ? "coach-primary" : ""}`} disabled={username.length < 2 || (signup ? password.length < 8 : password.length < 4)}>
         {signup ? "创建家庭账户" : mode === "coach" ? "进入家长陪伴" : "进入 ABA 智能助手"}
       </button>
       <small>注册即表示同意儿童数据保护与隐私说明</small>

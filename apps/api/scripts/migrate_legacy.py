@@ -144,16 +144,19 @@ def main() -> None:
                 user_id_map[legacy_user_id] = legacy_user_id
                 report["per_user"][legacy_user_id]["result"] = "created"
         db.flush()
+        seen_users: set[str] = set()
         for item in legacy_children:
             mapped_user_id = user_id_map.get(item["user_id"])
             if not mapped_user_id:
                 report["failures"].append(f"孩子 {item['child_id']} 的所属用户存在冲突，已跳过")
                 continue
             if not db.get(Child, item["child_id"]):
+                is_first = mapped_user_id not in seen_users
+                seen_users.add(mapped_user_id)
                 db.add(Child(
                     id=item["child_id"], user_id=mapped_user_id, name=item["name"],
                     birth_date=legacy_date(item.get("birth_date")), diagnosis=item.get("diagnosis"),
-                    goals=item.get("intervention_goals"), is_current=False,
+                    goals=item.get("intervention_goals"), is_current=is_first,
                 ))
         db.flush()
         for item in legacy_tasks:
@@ -207,16 +210,19 @@ def main() -> None:
                 session_id = legacy_id("training", f"{user_id}:{item['session_id']}")
                 if db.get(TrainingSession, session_id):
                     continue
+                is_finished = bool(item.get("finished"))
+                created = datetime.fromisoformat(item["created_at"])
                 session = TrainingSession(
                     id=session_id, user_id=user_id, child_id=item["child_id"],
                     task_id=item.get("task_id"), skill_name=item["skill_name"],
-                    status="completed" if item.get("finished") else "active",
+                    status="completed" if is_finished else "active",
                     idempotency_key=f"legacy:{item['session_id']}",
-                    created_at=datetime.fromisoformat(item["created_at"]),
+                    created_at=created,
+                    finished_at=created if is_finished else None,
                 )
                 db.add(session)
                 for sequence, result in enumerate(item.get("trials", []), 1):
-                    normalized = {"+": "I", "-": "E"}.get(result, result)
+                    normalized = {"+": "I", "-": "E"}.get(result, result[:1] if result else "U")
                     db.add(Trial(session_id=session_id, sequence=sequence, result=normalized))
                     imported_trials += 1
                 imported_sessions += 1
