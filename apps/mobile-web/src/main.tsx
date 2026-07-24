@@ -224,6 +224,7 @@ function TrainingPage({ child }: { child: Child }) {
   if (session && session.status === "active") return <section className="training-live">
     <button className="back-link" onClick={() => setSession(null)}><ChevronLeft/> 返回任务列表</button>
     <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1><p>每次呈现刺激后，记录孩子最少辅助下的反应。</p>
+    <TrainingFlashcard skillName={session.skill_name}/>
     <div className="score-ring"><strong>{session.percentage}%</strong><small>独立正确</small></div>
     <div className="trial-log">{session.trials.map((value, index) => <span className={`trial ${value}`} key={index}>{value}</span>)}</div>
     <div className="trial-buttons">
@@ -247,6 +248,39 @@ function TrainingPage({ child }: { child: Child }) {
       </article>)}</section>}
     {session?.status === "completed" && <div className="success-banner"><Check/> 本次训练已保存，独立正确率 {session.percentage}%</div>}
   </>;
+}
+
+function TrainingFlashcard({ skillName }: { skillName: string }) {
+  const { data: catalog } = useQuery({ queryKey: ["flashcards"], queryFn: api.flashcards });
+  const [manualCategory, setManualCategory] = useState<string | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
+  const [index, setIndex] = useState(0);
+  const allCategories = useMemo(() => catalog?.groups.flatMap(g => g.categories) ?? [], [catalog]);
+  const matched = useMemo(() => {
+    const lower = skillName.toLowerCase();
+    return allCategories.find(c => lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower));
+  }, [allCategories, skillName]);
+  const categoryName = manualCategory ?? matched?.name ?? null;
+  const { data: image, isLoading } = useQuery({
+    queryKey: ["flashcard-image", categoryName, index],
+    queryFn: () => api.flashcardImage(categoryName!, index),
+    enabled: Boolean(categoryName)
+  });
+  useEffect(() => () => { if (image) URL.revokeObjectURL(image); }, [image]);
+  if (!categoryName) return <div className="training-flashcard-empty">
+    <button className="link-btn" onClick={() => setShowPicker(!showPicker)}>选择图片卡</button>
+    {showPicker && <div className="flashcard-picker">{allCategories.map(c => <button key={c.name} onClick={() => { setManualCategory(c.name); setShowPicker(false); setIndex(0); }}>{c.name}<small>{c.count}</small></button>)}</div>}
+  </div>;
+  const currentCat = allCategories.find(c => c.name === categoryName);
+  return <div className="training-flashcard">
+    <div className="flashcard-stage">{isLoading ? <p>正在渲染卡片…</p> : image ? <img src={image} alt={`${categoryName} ${index + 1}`}/> : null}</div>
+    <div className="flashcard-controls">
+      <button disabled={index === 0} onClick={() => setIndex(index - 1)}>上一张</button>
+      <small>{index + 1} / {currentCat?.count ?? "?"}</small>
+      <button disabled={index >= (currentCat?.count ?? 1) - 1} onClick={() => setIndex(index + 1)}>下一张</button>
+    </div>
+    <button className="link-btn" onClick={() => setManualCategory(null)}>更换类别</button>
+  </div>;
 }
 
 function FlashcardCenter() {
