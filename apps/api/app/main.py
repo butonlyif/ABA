@@ -363,7 +363,12 @@ def create_session(
         TrainingSession.status == "active",
     ).order_by(TrainingSession.created_at.desc()))
     if active:
-        return session_out(active)
+        if active.task_id == body.task_id:
+            return session_out(active)
+        active.status = "completed"
+        if not active.finished_at:
+            active.finished_at = func.now()
+        db.flush()
     session = TrainingSession(user_id=user.id, idempotency_key=idempotency_key, **body.model_dump())
     db.add(session)
     db.commit()

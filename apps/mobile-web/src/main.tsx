@@ -219,10 +219,10 @@ function TrainingPage({ child }: { child: Child }) {
   const [session, setSession] = useState<Session | null>(null);
   const { data: activeSession } = useQuery({ queryKey: ["active-session", child.id], queryFn: () => api.activeSession(child.id) });
   useEffect(() => { if (activeSession) setSession(activeSession); }, [activeSession]);
-  const start = useMutation({ mutationFn: (task: Task) => api.createSession(child.id, task), onSuccess: setSession });
+  const start = useMutation({ mutationFn: (task: Task) => api.createSession(child.id, task), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["active-session", child.id] }); } });
   const trial = useMutation({ mutationFn: (result: string) => api.addTrial(session!.id, result), onSuccess: setSession });
   const undo = useMutation({ mutationFn: () => api.undoTrial(session!.id), onSuccess: setSession });
-  const finish = useMutation({ mutationFn: () => api.finishSession(session!.id), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); } });
+  const finish = useMutation({ mutationFn: () => api.finishSession(session!.id), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); queryClient.invalidateQueries({ queryKey: ["active-session", child.id] }); } });
   if (session && session.status === "active") return <section className="training-live">
     <button className="back-link" onClick={() => setSession(null)}><ChevronLeft/> 返回任务列表</button>
     <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1><p>每次呈现刺激后，记录孩子最少辅助下的反应。</p>
@@ -254,34 +254,26 @@ function TrainingPage({ child }: { child: Child }) {
 
 function TrainingFlashcard({ skillName }: { skillName: string }) {
   const { data: catalog } = useQuery({ queryKey: ["flashcards"], queryFn: api.flashcards });
-  const [manualCategory, setManualCategory] = useState<string | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
   const [index, setIndex] = useState(0);
   const allCategories = useMemo(() => catalog?.groups.flatMap(g => g.categories) ?? [], [catalog]);
   const matched = useMemo(() => {
     const lower = skillName.toLowerCase();
     return allCategories.find(c => lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower));
   }, [allCategories, skillName]);
-  const categoryName = manualCategory ?? matched?.name ?? null;
   const { data: image, isLoading } = useQuery({
-    queryKey: ["flashcard-image", categoryName, index],
-    queryFn: () => api.flashcardImage(categoryName!, index),
-    enabled: Boolean(categoryName)
+    queryKey: ["flashcard-image", matched?.name, index],
+    queryFn: () => api.flashcardImage(matched!.name, index),
+    enabled: Boolean(matched)
   });
   useEffect(() => () => { if (image) URL.revokeObjectURL(image); }, [image]);
-  if (!categoryName) return <div className="training-flashcard-empty">
-    <button className="link-btn" onClick={() => setShowPicker(!showPicker)}>选择图片卡</button>
-    {showPicker && <div className="flashcard-picker">{allCategories.map(c => <button key={c.name} onClick={() => { setManualCategory(c.name); setShowPicker(false); setIndex(0); }}>{c.name}<small>{c.count}</small></button>)}</div>}
-  </div>;
-  const currentCat = allCategories.find(c => c.name === categoryName);
+  if (!matched) return null;
   return <div className="training-flashcard">
-    <div className="flashcard-stage">{isLoading ? <p>正在渲染卡片…</p> : image ? <img src={image} alt={`${categoryName} ${index + 1}`}/> : null}</div>
+    <div className="flashcard-stage">{isLoading ? <p>正在渲染卡片…</p> : image ? <img src={image} alt={`${matched.name} ${index + 1}`}/> : null}</div>
     <div className="flashcard-controls">
       <button disabled={index === 0} onClick={() => setIndex(index - 1)}>上一张</button>
-      <small>{index + 1} / {currentCat?.count ?? "?"}</small>
-      <button disabled={index >= (currentCat?.count ?? 1) - 1} onClick={() => setIndex(index + 1)}>下一张</button>
+      <small>{index + 1} / {matched.count}</small>
+      <button disabled={index >= matched.count - 1} onClick={() => setIndex(index + 1)}>下一张</button>
     </div>
-    <button className="link-btn" onClick={() => setManualCategory(null)}>更换类别</button>
   </div>;
 }
 
