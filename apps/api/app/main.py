@@ -5,6 +5,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
@@ -641,7 +642,7 @@ def flashcard(category: str, index: int, user: User = Depends(current_user)):
         media_type = "image/webp"
     else:
         media_type = "application/octet-stream"
-    return Response(data, media_type=media_type, headers={"X-Card-Label": label})
+    return Response(data, media_type=media_type, headers={"X-Card-Label": quote(label, safe="")})
 
 
 @app.get("/api/v1/admin/overview")

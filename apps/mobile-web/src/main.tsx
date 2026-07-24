@@ -258,7 +258,26 @@ function TrainingFlashcard({ skillName }: { skillName: string }) {
   const allCategories = useMemo(() => catalog?.groups.flatMap(g => g.categories) ?? [], [catalog]);
   const matched = useMemo(() => {
     const lower = skillName.toLowerCase();
-    return allCategories.find(c => lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower));
+    // 1. 精确包含匹配（最优先）
+    const exact = allCategories.find(c => lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower));
+    if (exact) return exact;
+    // 2. 核心关键词匹配
+    const keywordMap: Record<string, string[]> = {
+      "情绪": ["情绪", "情感"], "颜色": ["颜色"], "动物": ["动物"], "水果": ["水果"],
+      "蔬菜": ["蔬菜"], "职业": ["职业", "服务人员"], "天气": ["天气"], "形状": ["形状"],
+      "身体": ["身体部位"], "食物": ["食物", "饮料"], "衣物": ["衣物"], "数字": ["数字"],
+      "字母": ["字母"], "分类": ["分类"], "配对": ["配对"], "社交": ["社交"],
+    };
+    for (const [keyword, patterns] of Object.entries(keywordMap)) {
+      if (lower.includes(keyword)) {
+        const found = allCategories.find(c => {
+          const cn = c.name.toLowerCase();
+          return patterns.some(p => cn.includes(p));
+        });
+        if (found) return found;
+      }
+    }
+    return undefined;
   }, [allCategories, skillName]);
   const { data: image, isLoading } = useQuery({
     queryKey: ["flashcard-image", matched?.name, index],
