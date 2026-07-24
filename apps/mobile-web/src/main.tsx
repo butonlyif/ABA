@@ -164,7 +164,7 @@ function ChildPage({ child }: { child: Child }) {
     switchChild.mutate(data.id);
     queryClient.invalidateQueries({ queryKey: ["children"] });
   }});
-  const { data } = useQuery({ queryKey: ["questions"], queryFn: api.questions });
+  const { data, isLoading: questionsLoading, error: questionsError } = useQuery({ queryKey: ["questions"], queryFn: api.questions });
   const [answers, setAnswers] = useState<Record<string, number>>(() => JSON.parse(localStorage.getItem(`assessment_${child.id}`) || "{}"));
   const [assessmentKey] = useState(() => {
     const storageKey = `assessment_key_${child.id}`;
@@ -188,7 +188,9 @@ function ChildPage({ child }: { child: Child }) {
     <section className="profile-card"><div className="avatar">{child.name.slice(0, 1)}</div><div><p className="eyebrow">当前孩子</p><h2>{child.name}</h2><p>{child.diagnosis || "尚未填写诊断信息"}</p></div></section>
     <div className="child-switcher">{allChildren.map(item => <button className={item.id === child.id ? "active" : ""} onClick={() => switchChild.mutate(item.id)} key={item.id}>{item.name}</button>)}<button className="add" onClick={() => setShowAdd(!showAdd)}><Plus size={15}/> 添加</button></div>
     {showAdd && <div className="inline-add"><input placeholder="孩子的小名" value={newChildName} onChange={e => setNewChildName(e.target.value)}/><button onClick={() => addChild.mutate()} disabled={!newChildName.trim()}>保存</button></div>}
-    <div className="page-heading"><p className="eyebrow">能力评估</p><h1>找到此刻最合适的起点</h1><p>根据孩子近两周的真实表现作答。不确定时选择“有时”。</p></div>
+    <div className="page-heading"><p className="eyebrow">能力评估</p><h1>找到此刻最合适的起点</h1><p>根据孩子近两周的真实表现作答。不确定时选择"有时"。</p></div>
+    {questionsLoading && <p>正在加载评估题目…</p>}
+    {questionsError && <p className="error">评估题目加载失败：{String(questionsError)}</p>}
     {data && <section className="assessment-focus">
       <div className="assessment-progress"><span style={{width: `${(Object.keys(answers).length / data.items.length) * 100}%`}} /></div>
       <p className="assessment-count">已完成 {Object.keys(answers).length}/{data.items.length}</p>
@@ -220,6 +222,7 @@ function TrainingPage({ child }: { child: Child }) {
   const undo = useMutation({ mutationFn: () => api.undoTrial(session!.id), onSuccess: setSession });
   const finish = useMutation({ mutationFn: () => api.finishSession(session!.id), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); } });
   if (session && session.status === "active") return <section className="training-live">
+    <button className="back-link" onClick={() => setSession(null)}><ChevronLeft/> 返回任务列表</button>
     <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1><p>每次呈现刺激后，记录孩子最少辅助下的反应。</p>
     <div className="score-ring"><strong>{session.percentage}%</strong><small>独立正确</small></div>
     <div className="trial-log">{session.trials.map((value, index) => <span className={`trial ${value}`} key={index}>{value}</span>)}</div>
