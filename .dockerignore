@@ -27,6 +27,7 @@ docs/user_manual*/
 **/data/flashcard_cache/
 **/data/training/
 deploy/data/
+apps/api/uploads/
 vectordb_index/
 
 # 发布/归档/缓存

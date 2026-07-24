@@ -1,0 +1,11 @@
+{
+  "name": "aba-platform",
+  "private": true,
+  "workspaces": ["apps/mobile-web", "apps/admin-web", "packages/contracts"],
+  "scripts": {
+    "dev:web": "npm --workspace @aba/mobile-web run dev",
+    "build:web": "npm --workspace @aba/mobile-web run build",
+    "dev:admin": "npm --workspace @aba/admin-web run dev",
+    "build:admin": "npm --workspace @aba/admin-web run build"
+  }
+}

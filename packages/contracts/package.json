@@ -1,0 +1,11 @@
+{
+  "name": "@aba/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "generate": "openapi-typescript openapi.json -o src/api.generated.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.8.0"
+  }
+}

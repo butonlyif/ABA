@@ -7,3 +7,22 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+# Modern platform local state
+apps/api/.env
+apps/api/.venv/
+apps/api/*.db
+apps/api/.pytest_cache/
+apps/api/migration-report.json
+apps/api/uploads/
+backups/
+apps/mobile-web/.env
+apps/mobile-web/dist/
+*.tsbuildinfo
+node_modules/
+
+# Runtime and private user data must never be committed
+src/MVP_web/data/users/
+src/MVP_web/data/training/
+deploy/data/
+deploy/modern.env
+deploy/staging.env
