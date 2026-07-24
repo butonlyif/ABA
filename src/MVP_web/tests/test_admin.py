@@ -48,7 +48,9 @@ class TestDataAccess:
                 user_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
-                timestamp TEXT NOT NULL
+                timestamp TEXT NOT NULL,
+                is_extracted INTEGER DEFAULT 0,
+                metadata TEXT
             )
         """)
         conn.execute("""
@@ -71,7 +73,8 @@ class TestDataAccess:
             (1, "user1", "小明", "3岁", "自闭症", "2024-01-01")
         )
         conn.execute(
-            "INSERT INTO conversations VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO conversations (id, user_id, role, content, timestamp) "
+            "VALUES (?, ?, ?, ?, ?)",
             (1, "user1", "user", "你好", "2024-01-01")
         )
         conn.commit()
@@ -139,28 +142,47 @@ class TestDataAccess:
 class TestExporter:
     """导出功能测试"""
 
-    def test_export_format_markdown(self):
-        """测试 Markdown 格式导出"""
-        from admin.exporter import format_report_markdown
+    def test_build_markdown(self):
+        """测试 Markdown 导出构建"""
+        from admin.exporter import build_markdown
 
-        data = {
-            "child_name": "小明",
-            "age": "3岁",
-            "assessment": "表现良好"
+        bundle = {
+            "user": {
+                "username": "testuser",
+                "created_at": "2024-01-01",
+                "last_login": "2024-01-02",
+                "user_info": {"child_name": "小明", "age": "3岁"},
+            },
+            "children": [],
+            "conversations": [
+                {"role": "user", "content": "你好", "timestamp": "2024-01-01 10:00"},
+            ],
+            "reports": [],
         }
 
-        result = format_report_markdown(data)
+        result = build_markdown(bundle)
         assert "小明" in result
         assert "3岁" in result
-        assert "assessment" in result.lower() or "表现良好" in result
+        assert "你好" in result
 
-    def test_export_format_json(self):
-        """测试 JSON 格式导出"""
-        from admin.exporter import format_report_json
+    def test_export_user_writes_files(self):
+        """测试 export_user 写出 md + json 文件"""
+        import tempfile
+        from admin.exporter import export_user
 
-        data = {"key": "value"}
-        result = format_report_json(data)
+        bundle = {
+            "user": {"user_id": "u1", "username": "testuser",
+                     "created_at": "2024-01-01", "last_login": "", "user_info": {}},
+            "children": [],
+            "conversations": [],
+            "reports": [],
+        }
+        out_root = Path(tempfile.mkdtemp())
+        md_path, json_path = export_user(bundle, out_root)
+        assert md_path.exists() and json_path.exists()
 
-        # 验证是有效的 JSON
-        parsed = json.loads(result)
-        assert parsed["key"] == "value"
+        parsed = json.loads(json_path.read_text(encoding="utf-8"))
+        assert parsed["user"]["username"] == "testuser"
+
+        import shutil
+        shutil.rmtree(out_root, ignore_errors=True)

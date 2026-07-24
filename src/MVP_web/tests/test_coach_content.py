@@ -67,11 +67,19 @@ class TestCoachContent:
         """测试成长阶段存在"""
         from coach.coach_content import GROWTH_STAGES
 
-        assert isinstance(GROWTH_STAGES, dict)
+        assert isinstance(GROWTH_STAGES, list)
         assert len(GROWTH_STAGES) > 0
+        # 每个阶段含必要字段
+        for stage in GROWTH_STAGES:
+            assert "id" in stage
+            assert "name" in stage
+            assert "tasks" in stage
 
     def test_coach_styles_exist(self):
-        """测试教练风格存在"""
-        from coach.coach_content import COACH_STYLES
+        """测试教练样式存在（THEME 配色 + CUSTOM_CSS 在 coach_styles 模块）"""
+        from coach.coach_styles import THEME, CUSTOM_CSS
 
-        assert isinstance(COACH_STYLES, dict)
+        assert isinstance(THEME, dict)
+        assert len(THEME) > 0
+        assert isinstance(CUSTOM_CSS, str)
+        assert len(CUSTOM_CSS) > 0

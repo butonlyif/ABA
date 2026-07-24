@@ -99,34 +99,34 @@ class TestDeepMemorySystem:
         assert history[0]["content"] == "你好"
         assert history[1]["content"] == "你好呀"
 
-    def test_user_exists(self):
-        """测试用户是否存在"""
+    def test_user_uniqueness(self):
+        """测试用户名唯一性（注册重名用户应失败）"""
         from core.deep_memory import DeepMemorySystem
 
         dms = DeepMemorySystem(str(self.data_path))
 
-        # 不存在
-        assert dms.user_exists("nonexistent") is False
+        # 首次注册成功
+        success, msg = dms.register("testuser", "password123")
+        assert success is True
 
-        # 注册后存在
-        dms.register("testuser", "password123")
-        assert dms.user_exists("testuser") is True
+        # 重名注册应失败
+        success2, msg2 = dms.register("testuser", "password123")
+        assert success2 is False
 
-    def test_update_user_info(self):
-        """测试更新用户信息"""
+    def test_save_user_profile(self):
+        """测试保存用户资料"""
         from core.deep_memory import DeepMemorySystem
 
         dms = DeepMemorySystem(str(self.data_path))
         dms.register("testuser", "password123")
-        dms.login("testuser", "password123")
 
         new_info = {"child_name": "小明", "child_age": "3岁"}
-        result = dms.update_user_info(new_info)
-        assert result is True
+        dms.save_user_profile(new_info)
 
-        # 验证更新
+        # 验证更新（重新登录后读取）
+        dms.login("testuser", "password123")
         user_info = dms.get_user_info()
-        assert user_info["child_name"] == "小明"
+        assert user_info["user_info"]["child_name"] == "小明"
 
     def test_get_user_info_not_logged_in(self):
         """测试未登录时获取用户信息"""
@@ -137,39 +137,7 @@ class TestDeepMemorySystem:
         assert user_info is None
 
 
-class TestSessionMemory:
-    """会话记忆测试"""
-
-    def test_session_memory_basic(self):
-        """测试基本会话记忆"""
-        from core.session_memory import SessionMemory
-
-        memory = SessionMemory()
-        memory.add_message("user", "你好")
-        memory.add_message("assistant", "你好呀")
-
-        history = memory.get_history()
-        assert len(history) == 2
-
-    def test_session_memory_limit(self):
-        """测试会话记忆限制"""
-        from core.session_memory import SessionMemory
-
-        memory = SessionMemory(max_messages=3)
-
-        for i in range(5):
-            memory.add_message("user", f"消息{i}")
-
-        history = memory.get_history()
-        assert len(history) <= 3
-
-    def test_session_memory_clear(self):
-        """测试清空会话记忆"""
-        from core.session_memory import SessionMemory
-
-        memory = SessionMemory()
-        memory.add_message("user", "你好")
-        memory.clear()
-
-        history = memory.get_history()
-        assert len(history) == 0
+# 注：原 TestSessionMemory 测试的是不存在的 SessionMemory 类。
+# 实际实现 core/session_memory.py 是 _SessionMemoryProxy，依赖 streamlit.session_state，
+# 无法在纯单元测试环境（无 Streamlit 运行上下文）中实例化，故移除该测试类。
+# 会话隔离逻辑由集成测试（运行 app）覆盖。

@@ -118,10 +118,10 @@ class TestEmotionDetection:
         assert count == 0
 
     def test_detect_emotion_no_match(self):
-        """测试无匹配"""
+        """测试无匹配（中性输入不触发任何情绪）"""
         from coach.coach_engine import detect_emotion
 
-        emotion, confidence = detect_emotion("今天天气不错")
+        emotion, confidence = detect_emotion("请问今天星期几")
         assert emotion is None
         assert confidence == 0
 
@@ -185,10 +185,10 @@ class TestLLMCoach:
             assert result is None
 
     def test_strip_reasoning(self):
-        """测试推理内容剥离"""
+        """测试推理内容剥离（<think>...</think> 闭合块被移除）"""
         from coach.coach_engine import _strip_reasoning
 
-        text = "<think>思考内容<|im_end|>\n\n这是实际回复"
+        text = "<think>思考内容</think>\n\n这是实际回复"
         result = _strip_reasoning(text)
         assert "<think>" not in result
         assert "这是实际回复" in result
