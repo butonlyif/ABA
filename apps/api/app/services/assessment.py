@@ -5,9 +5,11 @@ from typing import Any
 
 def _load_legacy_modules():
     candidates = [
-        Path(__file__).resolve().parents[4] / "src" / "MVP_web",
         Path("/app/legacy"),
     ]
+    parents = Path(__file__).resolve().parents
+    if len(parents) > 4:
+        candidates.append(parents[4] / "src" / "MVP_web")
     for candidate in candidates:
         if candidate.exists() and str(candidate) not in sys.path:
             sys.path.insert(0, str(candidate))
