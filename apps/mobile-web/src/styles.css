@@ -111,7 +111,7 @@ input:focus { border-color: var(--purple); box-shadow: 0 0 0 3px #6750a416; }
 .answer-row button.selected { color: var(--purple); border-color: var(--purple); background: var(--purple-soft); font-weight: 700; }
 .sticky-action { position: sticky; bottom: 90px; z-index: 5; }
 .task-list { display: grid; gap: 11px; }
-.training-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 5px; margin-bottom: 15px; border-radius: 14px; background: #eeebf1; }
+.training-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 5px; margin-bottom: 15px; border-radius: 14px; background: #eeebf1; }
 .training-tabs button { padding: 10px; border: 0; border-radius: 10px; color: #7d7683; background: transparent; }
 .training-tabs button.active { color: var(--purple); background: white; box-shadow: 0 2px 8px #392a4512; font-weight: 700; }
 .task-card { display: grid; grid-template-columns: 42px 1fr 38px; gap: 12px; align-items: center; padding: 16px; border-radius: 19px; border: 1px solid #eeeaf1; background: white; }
@@ -121,6 +121,32 @@ input:focus { border-color: var(--purple); box-shadow: 0 0 0 3px #6750a416; }
 .task-card small { color: var(--purple); font-weight: 700; }
 .task-card p { margin: 4px 0 0; font-size: 13px; color: #7c7682; }
 .task-card > button { width: 38px; height: 38px; border: 0; border-radius: 50%; color: white; background: var(--purple); }
+/* compact task card for grouped list */
+.task-card.compact { grid-template-columns: 1fr 34px; gap: 10px; padding: 12px 14px; }
+.task-card.compact .task-name { font-size: 14px; font-weight: 500; color: #3a2945; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-card.compact .task-name.done { color: #aaa5b0; text-decoration: line-through; }
+.task-card.compact > button { width: 34px; height: 34px; flex-shrink: 0; }
+/* task grouping */
+.task-group + .task-group { margin-top: 6px; padding-top: 12px; border-top: 1px dashed #e0dce2; }
+.task-group-title { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; color: var(--purple); margin-bottom: 8px; padding-left: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.task-group-title span { font-size: 11px; color: #aaa5b0; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.task-group-title.completed-group { color: #aaa5b0; }
+/* training flashcard */
+.training-flashcard { margin: 12px auto; max-width: 340px; }
+.flashcard-frame { background: white; border-radius: 20px; border: 1px solid #e8e4ee; overflow: hidden; box-shadow: 0 4px 16px #3a29450a; }
+.flashcard-label { display: block; text-align: center; font-size: 11px; color: #aaa5b0; padding: 6px 12px 0; letter-spacing: 0.5px; text-transform: uppercase; }
+.flashcard-stage { background: #faf9fc; min-height: 220px; max-height: 320px; display: flex; align-items: center; justify-content: center; padding: 16px; position: relative; overflow: hidden; }
+.flashcard-stage img { max-width: 100%; max-height: 300px; object-fit: contain; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.flashcard-loading { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #c4bfcf; font-size: 13px; animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+/* bottom nav bar */
+.flashcard-nav { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: linear-gradient(to top, #f7f5fb, transparent); gap: 4px; }
+.flashcard-nav button { width: 36px; height: 36px; border: 1px solid #ddd4e5; border-radius: 10px; background: white; color: var(--purple); display: grid; place-items: center; transition: all .15s; cursor: pointer; }
+.flashcard-nav button:hover:not(:disabled) { background: var(--purple); color: white; border-color: var(--purple); transform: scale(1.05); }
+.flashcard-nav button:disabled { opacity: .25; cursor: not-allowed; }
+.flashcard-random { width: 38px !important; height: 38px !important; border-color: #e0dce2 !important; color: #7d7683 !important; }
+.flashcard-random:hover:not(:disabled) { background: #eeebf1 !important; color: var(--purple) !important; border-color: var(--purple-soft) !important; }
+.flashcard-counter { font-size: 13px; font-weight: 600; color: #555; min-width: 48px; text-align: center; }
 .training-live { padding: 52px 2px 0; text-align: center; }
 .training-live h1 { font-size: 30px; margin-bottom: 8px; }
 .training-live > p:not(.eyebrow) { color: #77717d; }

@@ -41,6 +41,7 @@ services:
     volumes:
       - ../src/aba:/app/assets:ro
       - uploads_data:/app/uploads
+      - flashcard_cache:/app/legacy/data/flashcard_cache
 
   worker:
     build:
@@ -133,3 +134,4 @@ volumes:
   redis_data:
   uploads_data:
   object_data:
+  flashcard_cache:

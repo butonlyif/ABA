@@ -1,7 +1,7 @@
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Baby, BarChart3, BookOpen, Check, ChevronLeft, ChevronRight, CircleUserRound, HeartHandshake, Home, Inbox, MessageCircleHeart, PenLine, Play, Plus, Send, ShieldCheck, Smile, Sparkles, Sprout, Target, UserRoundCheck, WifiOff } from "lucide-react";
+import { Baby, BarChart3, BookOpen, Check, ChevronLeft, ChevronRight, CircleUserRound, HeartHandshake, Home, Inbox, MessageCircleHeart, PenLine, Play, Plus, Send, ShieldCheck, Shuffle, Smile, Sparkles, Sprout, Target, UserRoundCheck, WifiOff } from "lucide-react";
 import { api, Child, ExpertClient, ExpertProfile, Session, Task } from "./api";
 import "./styles.css";
 
@@ -215,6 +215,7 @@ function ChildPage({ child }: { child: Child }) {
 
 function TrainingPage({ child }: { child: Child }) {
   const [view, setView] = useState<"tasks" | "flashcards">("tasks");
+  const [showCompleted, setShowCompleted] = useState(false);
   const { data: tasks = [], isLoading } = useQuery({ queryKey: ["tasks", child.id], queryFn: () => api.tasks(child.id) });
   const [session, setSession] = useState<Session | null>(null);
   const { data: activeSession } = useQuery({ queryKey: ["active-session", child.id], queryFn: () => api.activeSession(child.id) });
@@ -223,6 +224,23 @@ function TrainingPage({ child }: { child: Child }) {
   const trial = useMutation({ mutationFn: (result: string) => api.addTrial(session!.id, result), onSuccess: setSession });
   const undo = useMutation({ mutationFn: () => api.undoTrial(session!.id), onSuccess: setSession });
   const finish = useMutation({ mutationFn: () => api.finishSession(session!.id), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); queryClient.invalidateQueries({ queryKey: ["active-session", child.id] }); } });
+
+  // 过滤：去掉报告项 + 按完成状态分组
+  const realTasks = useMemo(() => tasks.filter(t => !t.name.includes("报告")), [tasks]);
+  const activeTasks = useMemo(() => realTasks.filter(t => t.status !== "completed"), [realTasks]);
+  const completedTasks = useMemo(() => realTasks.filter(t => t.status === "completed"), [realTasks]);
+
+  // 按分类分组
+  const grouped = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const t of activeTasks) {
+      const cat = t.category || "其他";
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(t);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "zh"));
+  }, [activeTasks]);
+
   if (session && session.status === "active") return <section className="training-live">
     <button className="back-link" onClick={() => setSession(null)}><ChevronLeft/> 返回任务列表</button>
     <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1><p>每次呈现刺激后，记录孩子最少辅助下的反应。</p>
@@ -241,13 +259,28 @@ function TrainingPage({ child }: { child: Child }) {
   </section>;
   return <>
     <div className="page-heading"><p className="eyebrow">训练中心</p><h1>今天，专注一件小事</h1><p>短时、高频、在成功时结束。</p></div>
-    <div className="training-tabs"><button className={view === "tasks" ? "active" : ""} onClick={() => setView("tasks")}>当前任务</button><button className={view === "flashcards" ? "active" : ""} onClick={() => setView("flashcards")}>图片卡</button></div>
-    {view === "flashcards" ? <FlashcardCenter/> : isLoading ? <p>正在加载任务…</p> : tasks.length === 0 ? <section className="empty-state"><Target/><h2>还没有训练任务</h2><p>先去“孩子”页完成能力评估。</p></section> :
-      <section className="task-list">{tasks.map(task => <article className={`task-card ${task.status}`} key={task.id}>
-        <div className="task-icon">{task.status === "completed" ? <Check/> : <Target/>}</div>
-        <div><small>{task.category}</small><strong>{task.name}</strong><p>{task.description}</p></div>
-        {task.status !== "completed" && <button onClick={() => start.mutate(task)} aria-label={`开始${task.name}`}><Play size={18}/></button>}
-      </article>)}</section>}
+    <div className="training-tabs">
+      <button className={view === "tasks" ? "active" : ""} onClick={() => setView("tasks")}>当前任务 ({activeTasks.length})</button>
+      <button className={view === "flashcards" ? "active" : ""} onClick={() => setView("flashcards")}>图片卡</button>
+      {completedTasks.length > 0 && <button className={showCompleted ? "active" : ""} onClick={() => setShowCompleted(!showCompleted)}>已完成 ({completedTasks.length})</button>}
+    </div>
+    {view === "flashcards" ? <FlashcardCenter/> : isLoading ? <p>正在加载任务…</p> : activeTasks.length === 0 && completedTasks.length === 0 ?
+      <section className="empty-state"><Target/><h2>还没有训练任务</h2><p>先去"孩子"页完成能力评估。</p></section> :
+      <section className="task-list">
+        {grouped.map(([category, items]) => <div key={category} className="task-group">
+          <h3 className="task-group-title">{category}<span>{items.length} 项</span></h3>
+          {items.map(task => <article className={`task-card compact ${task.status}`} key={task.id}>
+            <span className="task-name">{task.name}</span>
+            <button onClick={() => start.mutate(task)} aria-label={`开始${task.name}`}><Play size={16}/></button>
+          </article>)}
+        </div>)}
+        {showCompleted && completedTasks.length > 0 && <div className="task-group">
+          <h3 className="task-group-title completed-group">已完成<span>{completedTasks.length} 项</span></h3>
+          {completedTasks.map(task => <article className={`task-card compact ${task.status}`} key={task.id}>
+            <span className="task-name done">{task.name}</span><Check size={14}/>
+          </article>)}
+        </div>}
+      </section>}
     {session?.status === "completed" && <div className="success-banner"><Check/> 本次训练已保存，独立正确率 {session.percentage}%</div>}
   </>;
 }
@@ -258,10 +291,8 @@ function TrainingFlashcard({ skillName }: { skillName: string }) {
   const allCategories = useMemo(() => catalog?.groups.flatMap(g => g.categories) ?? [], [catalog]);
   const matched = useMemo(() => {
     const lower = skillName.toLowerCase();
-    // 1. 精确包含匹配（最优先）
     const exact = allCategories.find(c => lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(lower));
     if (exact) return exact;
-    // 2. 核心关键词匹配
     const keywordMap: Record<string, string[]> = {
       "情绪": ["情绪", "情感"], "颜色": ["颜色"], "动物": ["动物"], "水果": ["水果"],
       "蔬菜": ["蔬菜"], "职业": ["职业", "服务人员"], "天气": ["天气"], "形状": ["形状"],
@@ -286,12 +317,20 @@ function TrainingFlashcard({ skillName }: { skillName: string }) {
   });
   useEffect(() => () => { if (image) URL.revokeObjectURL(image); }, [image]);
   if (!matched) return null;
+  const goRandom = () => setIndex(Math.floor(Math.random() * matched.count));
+  if (!matched) return null;
   return <div className="training-flashcard">
-    <div className="flashcard-stage">{isLoading ? <p>正在渲染卡片…</p> : image ? <img src={image} alt={`${matched.name} ${index + 1}`}/> : null}</div>
-    <div className="flashcard-controls">
-      <button disabled={index === 0} onClick={() => setIndex(index - 1)}>上一张</button>
-      <small>{index + 1} / {matched.count}</small>
-      <button disabled={index >= matched.count - 1} onClick={() => setIndex(index + 1)}>下一张</button>
+    <div className="flashcard-frame">
+      <span className="flashcard-label">{matched.name}</span>
+      <div className="flashcard-stage">
+        {isLoading ? <div className="flashcard-loading"><Sparkles size={24}/> 加载中…</div> : image ? <img src={image} alt={`${matched.name} ${index + 1}`}/> : null}
+      </div>
+      <div className="flashcard-nav">
+        <button disabled={index === 0} onClick={() => setIndex(index - 1)}><ChevronLeft size={16}/></button>
+        <button className="flashcard-random" onClick={goRandom} title="随机"><Shuffle size={16}/></button>
+        <span className="flashcard-counter">{index + 1} / {matched.count}</span>
+        <button disabled={index >= matched.count - 1} onClick={() => setIndex(index + 1)}><ChevronRight size={16}/></button>
+      </div>
     </div>
   </div>;
 }
