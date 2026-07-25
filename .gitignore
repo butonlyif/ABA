@@ -19,6 +19,7 @@ apps/mobile-web/.env
 apps/mobile-web/dist/
 *.tsbuildinfo
 node_modules/
+aba_api.db
 
 # Runtime and private user data must never be committed
 src/MVP_web/data/users/

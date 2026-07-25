@@ -316,6 +316,8 @@ export const api = {
   saveMood: (payload: { mood: string; intensity: number; note?: string }) => request("/coach/moods", { method: "POST", body: JSON.stringify(payload) }),
   journals: () => request<{ id: string; content: string; created_at: string }[]>("/coach/journals"),
   saveJournal: (content: string) => request("/coach/journals", { method: "POST", body: JSON.stringify({ content, prompt: "今天有没有一个瞬间，你觉得自己其实做得还不错？" }) }),
-  coachArticles: () => request<{ items: { id: string; title: string; category: string; subcategory: string; level: string; read_time: string; summary: string }[] }>("/coach/articles"),
-  coachArticle: (id: string) => request<{ id: string; title: string; category: string; summary: string; content: string; read_time: string }>(`/coach/articles/${id}`)
+  coachArticles: (q?: string) => request<{ items: { id: string; title: string; category: string; subcategory: string; level: string; read_time: string; summary: string }[] }>(`/coach/articles${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  coachCategories: () => request<{ items: { id: string; name: string; icon: string; desc: string; color: string; count: number; children: { id: string; name: string; icon: string; desc: string; count: number }[] }[] }>("/coach/categories"),
+  coachArticle: (id: string) => request<{ id: string; title: string; category: string; subcategory: string; summary: string; content: string; read_time: string; related: { id: string; title: string; subcategory: string; read_time: string }[] }>(`/coach/articles/${id}`),
+  coachWeeklyReport: (week_offset: number = 0) => request<{ week_start: string; week_end: string; mood_count: number; journal_count: number; chat_count: number; content: string; provider: string; fallback: boolean }>(`/coach/weekly-report?week_offset=${week_offset}`, { method: "POST" })
 };

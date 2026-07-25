@@ -24,10 +24,12 @@ from .schemas import (
     TaskOut, TaskPatch, TokenPair, TrialIn, UserOut,
 )
 from .services.assessment import questions as real_assessment_questions, score_and_tasks, skill_catalog
-from .services.ai import analyze_medical_record, generate
+from .services.ai import analyze_medical_record, crisis_response, generate
 from .services.flashcards import card as flashcard_image, catalog as flashcard_catalog
 from .services.jobs import enqueue_report
-from .services.coach_content import article as coach_article, articles as coach_articles
+from .services.coach_content import article as coach_article, articles as coach_articles, categories as coach_categories, related as coach_related, search as coach_search
+from .services.coach_weekly import generate_weekly_summary
+from .services.context_builder import build_aba_context, build_coach_context
 from .services.rate_limit import limiter
 from .services.storage import get_storage
 from .services.avatar import avatar_url_for, generate_avatar_svg
@@ -678,23 +680,27 @@ def download_report(report_id: str, user: User = Depends(current_user), db: Sess
 
 
 def safe_answer(message: str) -> str:
-    risk_words = ("自杀", "伤害孩子", "不想活", "杀了")
-    if any(word in message for word in risk_words):
-        return "你描述的情况可能涉及立即安全风险。请先离开危险物品、联系可信赖的家人或当地紧急服务，并尽快寻求专业人员现场帮助。"
+    risk = crisis_response(message, "aba")
+    if risk:
+        return risk
     return "先记录行为发生前的情境、具体行为和随后结果（ABC）。从一次只调整一个变量开始，并强化孩子可以替代问题行为的沟通方式。"
 
 
 @app.post("/api/v1/chat/stream")
 async def chat_stream(body: ChatRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if body.child_id:
-        owned_child(db, user, body.child_id)
+    child = owned_child(db, user, body.child_id) if body.child_id else None
     history = [
         {"role": item.role, "content": item.content}
         for item in db.scalars(select(ChatMessage).where(
             ChatMessage.user_id == user.id, ChatMessage.product == "aba"
         ).order_by(ChatMessage.created_at.desc()).limit(10)).all()[::-1]
     ]
-    answer, sources, ai_call = generate("aba", body.message, history)
+    recent_sessions = db.scalars(select(TrainingSession).where(
+        TrainingSession.user_id == user.id, TrainingSession.child_id == body.child_id,
+        TrainingSession.status == "completed",
+    ).order_by(TrainingSession.created_at.desc()).limit(5)).all() if child else []
+    context = build_aba_context(child, recent_sessions)
+    answer, sources, ai_call = generate("aba", body.message, history, context)
     db.add_all([
         ChatMessage(user_id=user.id, product="aba", child_id=body.child_id, role="user", content=body.message),
         ChatMessage(user_id=user.id, product="aba", child_id=body.child_id, role="assistant", content=answer, sources=sources),
@@ -719,12 +725,16 @@ def public_chat(body: ChatRequest, request: Request):
 
 @app.post("/api/v1/chat", response_model=ChatAnswer)
 def chat(body: ChatRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    if body.child_id:
-        owned_child(db, user, body.child_id)
+    child = owned_child(db, user, body.child_id) if body.child_id else None
     history_rows = db.scalars(select(ChatMessage).where(
         ChatMessage.user_id == user.id, ChatMessage.product == "aba"
     ).order_by(ChatMessage.created_at.desc()).limit(10)).all()[::-1]
-    answer, sources, ai_call = generate("aba", body.message, [{"role": row.role, "content": row.content} for row in history_rows])
+    recent_sessions = db.scalars(select(TrainingSession).where(
+        TrainingSession.user_id == user.id, TrainingSession.child_id == body.child_id,
+        TrainingSession.status == "completed",
+    ).order_by(TrainingSession.created_at.desc()).limit(5)).all() if child else []
+    context = build_aba_context(child, recent_sessions)
+    answer, sources, ai_call = generate("aba", body.message, [{"role": row.role, "content": row.content} for row in history_rows], context)
     db.add_all([
         ChatMessage(user_id=user.id, product="aba", child_id=body.child_id, role="user", content=body.message),
         ChatMessage(user_id=user.id, product="aba", child_id=body.child_id, role="assistant", content=answer, sources=sources),
@@ -803,9 +813,50 @@ def growth(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return {"stages": [{"stage": stage, "status": saved.get(stage, "completed" if stage == 1 else "active" if stage == 2 else "locked")} for stage in range(1, 6)]}
 
 
+@app.post("/api/v1/coach/weekly-report")
+def coach_weekly_report(week_offset: int = 0, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """生成人生教练 AI 周报。week_offset: 0=本周，-1=上周。"""
+    from datetime import date, timedelta
+    today = date.today()
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
+    next_monday = monday + timedelta(days=7)
+    moods = db.scalars(select(MoodEntry).where(
+        MoodEntry.user_id == user.id, MoodEntry.entry_date >= monday, MoodEntry.entry_date < next_monday,
+    ).order_by(MoodEntry.entry_date)).all()
+    journals = db.scalars(select(JournalEntry).where(
+        JournalEntry.user_id == user.id, JournalEntry.created_at >= datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc),
+        JournalEntry.created_at < datetime(next_monday.year, next_monday.month, next_monday.day, tzinfo=timezone.utc),
+    ).order_by(JournalEntry.created_at)).all()
+    chat_count = db.scalar(select(func.count()).select_from(ChatMessage).where(
+        ChatMessage.user_id == user.id, ChatMessage.product == "coach", ChatMessage.role == "user",
+        ChatMessage.created_at >= datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc),
+        ChatMessage.created_at < datetime(next_monday.year, next_monday.month, next_monday.day, tzinfo=timezone.utc),
+    )) or 0
+    content, ai_call = generate_weekly_summary(moods, journals, chat_count, week_offset)
+    add_ai_usage(db, user, "coach_weekly", ai_call)
+    db.commit()
+    return {
+        "week_start": monday.isoformat(),
+        "week_end": (monday + timedelta(days=6)).isoformat(),
+        "mood_count": len(moods),
+        "journal_count": len(journals),
+        "chat_count": chat_count,
+        "content": content,
+        "provider": ai_call.provider,
+        "fallback": ai_call.fallback,
+    }
+
+
 @app.get("/api/v1/coach/articles")
-def list_coach_articles(user: User = Depends(current_user)):
+def list_coach_articles(q: str | None = None, user: User = Depends(current_user)):
+    if q:
+        return {"items": coach_search(q)}
     return {"items": coach_articles()}
+
+
+@app.get("/api/v1/coach/categories")
+def list_coach_categories(user: User = Depends(current_user)):
+    return {"items": coach_categories()}
 
 
 @app.get("/api/v1/coach/articles/{article_id}")
@@ -813,6 +864,7 @@ def get_coach_article(article_id: str, user: User = Depends(current_user)):
     item = coach_article(article_id)
     if not item:
         raise HTTPException(404, "文章不存在")
+    return {**item, "related": coach_related(article_id)}
     return item
 
 
@@ -821,7 +873,14 @@ def coach_chat(body: ChatRequest, user: User = Depends(current_user), db: Sessio
     history_rows = db.scalars(select(ChatMessage).where(
         ChatMessage.user_id == user.id, ChatMessage.product == "coach"
     ).order_by(ChatMessage.created_at.desc()).limit(10)).all()[::-1]
-    answer, _, ai_call = generate("coach", body.message, [{"role": row.role, "content": row.content} for row in history_rows])
+    recent_moods = db.scalars(select(MoodEntry).where(
+        MoodEntry.user_id == user.id,
+    ).order_by(MoodEntry.entry_date.desc()).limit(5)).all()
+    recent_journals = db.scalars(select(JournalEntry).where(
+        JournalEntry.user_id == user.id,
+    ).order_by(JournalEntry.created_at.desc()).limit(3)).all()
+    context = build_coach_context(recent_moods, recent_journals)
+    answer, _, ai_call = generate("coach", body.message, [{"role": row.role, "content": row.content} for row in history_rows], context)
     db.add_all([
         ChatMessage(user_id=user.id, product="coach", role="user", content=body.message),
         ChatMessage(user_id=user.id, product="coach", role="assistant", content=answer),

@@ -25,7 +25,7 @@ deploy_api() {
     "${REMOTE}":~/AI_codex/apps/api/app/
 
   echo "--- [API] 重建镜像并重启 ---"
-  ${SSH_CMD} "${REMOTE}" "cd ~/AI_codex && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml build api 2>&1 | tail -3 && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml up -d api 2>&1 | tail-3"
+  ${SSH_CMD} "${REMOTE}" "cd ~/AI_codex && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml build api 2>&1 | tail -3 && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml up -d api 2>&1 | tail -3"
   echo "[API] 完成"
 }
 
@@ -56,7 +56,7 @@ deploy_web() {
   echo "--- [Web] 复制到容器 + reload nginx ---"
   ${SSH_CMD} "${REMOTE}" "
     if ! docker ps --format '{{.Names}}' | grep -q '^aba-modern-web-1$'; then
-      cd ~/AI_codex && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml up -d web 2>&1 | tail-3
+      cd ~/AI_codex && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml up -d web 2>&1 | tail -3
       sleep 2
     fi
     docker cp /tmp/aba-web-dist/. aba-modern-web-1:/usr/share/nginx/html/

@@ -798,7 +798,7 @@ function ActResolutionView({ session, onRestart }: { session: ActSession; onRest
 }
 
 function CoachApp({ username, switchToAba, logout }: { username: string; switchToAba: () => void; logout: () => void }) {
-  type CoachTab = "chat" | "emotion" | "growth" | "journal" | "knowledge";
+  type CoachTab = "chat" | "emotion" | "growth" | "journal" | "weekly" | "knowledge";
   const [tab, setTab] = useState<CoachTab>("chat");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([
@@ -824,13 +824,18 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   }, [actSessions]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [newProblem, setNewProblem] = useState("");
-  // 知识库分类筛选
+  // 知识库：视图模式（"tree"=分类树首屏 / "list"=文章列表）、搜索、选中的分类/子分类
   const [activeCategory, setActiveCategory] = useState<string>("全部");
+  const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  // 周报：选中的周（0=本周，-1=上周）
+  const [weekOffset, setWeekOffset] = useState(0);
   const { data: coachOverview } = useQuery({ queryKey: ["coach-overview"], queryFn: api.coachOverview });
   const { data: coachHistory = [] } = useQuery({ queryKey: ["chat", "coach"], queryFn: () => api.chatMessages("coach") });
   const { data: savedMoods = [] } = useQuery({ queryKey: ["coach-moods"], queryFn: api.moods });
   const { data: savedJournals = [] } = useQuery({ queryKey: ["coach-journals"], queryFn: api.journals });
-  const { data: articleCatalog } = useQuery({ queryKey: ["coach-articles"], queryFn: api.coachArticles });
+  const { data: articleCatalog } = useQuery({ queryKey: ["coach-articles"], queryFn: () => api.coachArticles(searchQuery || undefined), placeholderData: prev => prev });
+  const { data: categoryTree } = useQuery({ queryKey: ["coach-categories"], queryFn: api.coachCategories });
   const { data: selectedArticle } = useQuery({ queryKey: ["coach-article", articleId], queryFn: () => api.coachArticle(articleId!), enabled: Boolean(articleId) });
   useEffect(() => {
     if (coachHistory.length) setMessages(coachHistory.map(item => item.content));
@@ -855,6 +860,9 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
     queryClient.invalidateQueries({ queryKey: ["coach-journals"] });
     queryClient.invalidateQueries({ queryKey: ["coach-overview"] });
   }});
+  const weeklyMutation = useMutation({
+    mutationFn: (offset: number) => api.coachWeeklyReport(offset),
+  });
   const send = () => {
     if (!message.trim()) return;
     coachChatMutation.mutate(message);
@@ -877,6 +885,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
     emotion: ["情绪", "记录今天的状态，看见自己的节奏"],
     growth: ["ACT", "带着一个问题，按自己的节奏走完六步"],
     journal: ["日记", "留一句话给今天的自己"],
+    weekly: ["周报", "AI 帮你回看本周的变化"],
     knowledge: ["知识库", "为家长准备的成长内容"]
   };
 
@@ -1105,23 +1114,82 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
       <h3 className="coach-section-head">过往记录</h3>
       <div className="journal-history">{savedJournals.length ? savedJournals.map(item => <article key={item.id}><time>{new Date(item.created_at).toLocaleDateString("zh-CN", {month: "short", day: "numeric"})}</time><div><strong>{item.content.slice(0, 18)}</strong><p>{item.content}</p></div></article>) : <p className="muted">保存第一篇反思后会显示在这里。</p>}</div>
     </>,
-    knowledge: articleId ? <section className="article-detail"><button className="back-link" onClick={() => setArticleId(null)}><ChevronLeft/> 返回知识库</button>{selectedArticle ? <><p className="eyebrow">{CATEGORY_LABELS[selectedArticle.category] || selectedArticle.category} · {selectedArticle.read_time}</p><h2>{selectedArticle.title}</h2><p className="article-summary">{selectedArticle.summary}</p><div className="article-content">{selectedArticle.content}</div></> : <p>正在加载文章…</p>}</section> : (() => {
-      const availableCategories = Array.from(new Set((articleCatalog?.items || []).map(item => item.category)));
-      const orderedKnown = ["parenting", "self", "emotion", "relationship", "mindfulness", "methodology", "health", "habits", "career"];
-      const visibleCats = orderedKnown.filter(c => availableCategories.includes(c));
-      const categoryKeys = ["全部", ...visibleCats];
-      const filteredItems = (articleCatalog?.items || []).filter(item =>
-        activeCategory === "全部" || item.category === activeCategory
-      );
+    weekly: <>
+      <section className="card weekly-card">
+        <div className="weekly-week-switch">
+          <button className={weekOffset === 0 ? "selected" : ""} onClick={() => setWeekOffset(0)}>本周</button>
+          <button className={weekOffset === -1 ? "selected" : ""} onClick={() => setWeekOffset(-1)}>上周</button>
+        </div>
+        <p className="muted small">AI 会根据你本周的情绪、日记和对话数据，写一份简短的回顾。</p>
+        <button className="primary" disabled={weeklyMutation.isPending} onClick={() => weeklyMutation.mutate(weekOffset)}>
+          {weeklyMutation.isPending ? "正在生成…" : weeklyMutation.data ? `重新生成${weekOffset === 0 ? "本周" : "上周"}周报` : `生成${weekOffset === 0 ? "本周" : "上周"}周报`}
+        </button>
+        {weeklyMutation.isError && <p className="muted small">生成失败，请稍后再试。</p>}
+        {weeklyMutation.data && <>
+          <div className="weekly-meta">
+            <span>{weeklyMutation.data.week_start} ~ {weeklyMutation.data.week_end}</span>
+            <span>情绪 {weeklyMutation.data.mood_count} · 日记 {weeklyMutation.data.journal_count} · 对话 {weeklyMutation.data.chat_count}</span>
+            {weeklyMutation.data.fallback && <small>· 规则版（AI 暂不可用）</small>}
+          </div>
+          <div className="weekly-content">{weeklyMutation.data.content}</div>
+        </>}
+      </section>
+    </>,
+    knowledge: articleId ? <section className="article-detail"><button className="back-link" onClick={() => setArticleId(null)}><ChevronLeft/> 返回知识库</button>{selectedArticle ? <><p className="eyebrow">{CATEGORY_LABELS[selectedArticle.category] || selectedArticle.category}{selectedArticle.subcategory ? ` · ${selectedArticle.subcategory}` : ""} · {selectedArticle.read_time}</p><h2>{selectedArticle.title}</h2><p className="article-summary">{selectedArticle.summary}</p><div className="article-content">{selectedArticle.content}</div>{selectedArticle.related && selectedArticle.related.length > 0 && <><h3 className="related-articles-head">📚 相关文章</h3><div className="knowledge-list">{selectedArticle.related.map(item => <button key={item.id} onClick={() => setArticleId(item.id)}><small>{item.subcategory} · {item.read_time}</small><strong>{item.title}</strong><ChevronRight/></button>)}</div></>}</> : <p>正在加载文章…</p>}</section> : (() => {
+      const items = articleCatalog?.items || [];
+      const isSearching = searchQuery.trim().length > 0;
+      // 搜索模式：直接显示搜索结果
+      if (isSearching) {
+        return <>
+          <div className="knowledge-search">
+            <input autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 搜索文章标题、摘要、内容…"/>
+            {searchQuery && <button className="clear-search" onClick={() => setSearchQuery("")}>清除</button>}
+          </div>
+          {items.length === 0 ? <p className="muted">未找到包含「{searchQuery}」的文章。</p> : <><p className="muted">找到 {items.length} 篇相关文章</p><div className="knowledge-list">{items.map(item => <button key={item.id} onClick={() => setArticleId(item.id)}><small>{CATEGORY_LABELS[item.category] || item.category}{item.subcategory ? ` · ${item.subcategory}` : ""} · {item.read_time}</small><strong>{item.title}</strong><p>{item.summary}</p><ChevronRight/></button>)}</div></>}
+        </>;
+      }
+      // 选中了具体子分类：显示该子分类下的文章
+      if (activeSubcategory) {
+        const subItems = items.filter(item => item.category === activeCategory && item.subcategory === activeSubcategory);
+        return <>
+          <button className="back-link" onClick={() => setActiveSubcategory(null)}><ChevronLeft/> 返回分类</button>
+          <h2 className="subcategory-head">{activeSubcategory}</h2>
+          {subItems.length === 0 ? <p className="muted">该分类下还没有内容。</p> : <div className="knowledge-list">{subItems.map(item => <button key={item.id} onClick={() => setArticleId(item.id)}><small>{item.read_time} · {item.level}</small><strong>{item.title}</strong><p>{item.summary}</p><ChevronRight/></button>)}</div>}
+        </>;
+      }
+      // 默认：分类树首屏 + 一级分类切换
+      const tree = categoryTree?.items || [];
+      const currentCat = tree.find(c => c.id === activeCategory);
       return <>
-        <div className="knowledge-chips">{categoryKeys.map(cat => <button key={cat} className={cat === activeCategory ? "selected" : ""} onClick={() => setActiveCategory(cat)}>{cat === "全部" ? "全部" : CATEGORY_LABELS[cat] || cat}</button>)}</div>
-        {filteredItems.length === 0 ? <p className="muted">该分类下还没有内容。</p> : <div className="knowledge-list">{filteredItems.map(item => <button key={item.id} onClick={() => setArticleId(item.id)}><small>{CATEGORY_LABELS[item.category] || item.category}{item.subcategory ? ` · ${item.subcategory}` : ""} · {item.read_time}</small><strong>{item.title}</strong><p>{item.summary}</p><ChevronRight/></button>)}</div>}
+        <div className="knowledge-search">
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 搜索文章标题、摘要、内容…"/>
+        </div>
+        {activeCategory === "全部" ? (
+          <div className="category-tree">{tree.map(cat => <button key={cat.id} className="category-card" onClick={() => setActiveCategory(cat.id)}>
+            <span className="category-icon">{cat.icon}</span>
+            <div className="category-body"><strong>{cat.name}</strong><small>{cat.desc}</small><span className="category-count">{cat.count} 篇 · {cat.children.length} 个子分类</span></div>
+            <ChevronRight/>
+          </button>)}</div>
+        ) : (
+          // 展开某个一级分类：显示其子分类
+          currentCat ? <>
+            <button className="back-link" onClick={() => setActiveCategory("全部")}><ChevronLeft/> 全部分类</button>
+            <div className="category-tree">
+              <div className="category-card current"><span className="category-icon">{currentCat.icon}</span><div className="category-body"><strong>{currentCat.name}</strong><small>{currentCat.desc}</small></div></div>
+            </div>
+            <div className="subcategory-grid">{currentCat.children.map(ch => <button key={ch.id} className="subcategory-card" onClick={() => setActiveSubcategory(ch.name)}>
+              <span>{ch.icon}</span><div><strong>{ch.name}</strong><small>{ch.desc}</small></div><span className="subcategory-count">{ch.count}</span>
+            </button>)}</div>
+            <h3 className="related-articles-head">📂 {currentCat.name} 全部文章</h3>
+            <div className="knowledge-list">{items.filter(it => it.category === currentCat.id).map(item => <button key={item.id} onClick={() => setArticleId(item.id)}><small>{item.subcategory} · {item.read_time}</small><strong>{item.title}</strong><p>{item.summary}</p><ChevronRight/></button>)}</div>
+          </> : <p className="muted">分类加载中…</p>
+        )}
       </>;
     })()
   }[tab];
   const navItems = [
     ["chat", "陪伴", MessageCircleHeart], ["emotion", "情绪", Smile], ["growth", "成长", Sprout],
-    ["journal", "日记", PenLine], ["knowledge", "知识库", BookOpen]
+    ["journal", "日记", PenLine], ["weekly", "周报", BarChart3], ["knowledge", "知识库", BookOpen]
   ] as const;
   return <main className="coach-shell">
     <header className="coach-hero compact">

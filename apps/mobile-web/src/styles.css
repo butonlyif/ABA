@@ -541,6 +541,37 @@ button.small { padding: 7px 14px; font-size: 13px; }
 .article-detail h2 { font-size: 27px; line-height: 1.35; }
 .article-summary { padding: 14px; border-radius: 14px; color: #675746; background: #f3eadf; line-height: 1.6; }
 .article-content { white-space: pre-wrap; color: #514940; line-height: 1.85; }
+/* T5 知识库树形浏览 */
+.knowledge-search { display: flex; gap: 8px; margin-bottom: 14px; }
+.knowledge-search input { flex: 1; padding: 11px 14px; border: 1px solid #d8c8b0; border-radius: 22px; font: inherit; font-size: 14px; background: white; color: #4f3f2c; }
+.knowledge-search input:focus { outline: none; border-color: #947a5c; }
+.knowledge-search .clear-search { padding: 0 14px; border: 1px solid #d8c8b0; border-radius: 22px; background: #f6efe2; color: #755e45; font-size: 12px; cursor: pointer; }
+.category-tree { display: grid; gap: 10px; }
+.category-tree .category-card { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid #e8dfd5; border-radius: 18px; background: white; text-align: left; cursor: pointer; color: #4f463d; }
+.category-tree .category-card.current { background: #f3eadf; cursor: default; }
+.category-tree .category-icon { font-size: 1.6rem; }
+.category-tree .category-body { flex: 1; }
+.category-tree .category-body strong { display: block; font-size: 15px; margin-bottom: 3px; }
+.category-tree .category-body small { display: block; color: #856d50; font-size: 12px; line-height: 1.4; }
+.category-tree .category-count { display: block; margin-top: 5px; color: #998d81; font-size: 11px; }
+.category-tree .category-card svg { width: 18px; color: #998d81; }
+.subcategory-grid { display: grid; gap: 9px; margin: 14px 0; }
+.subcategory-grid .subcategory-card { display: flex; align-items: center; gap: 10px; padding: 13px 14px; border: 1px solid #ece2d2; border-radius: 14px; background: #fbf6ee; text-align: left; cursor: pointer; color: #4f463d; }
+.subcategory-grid .subcategory-card span:first-child { font-size: 1.3rem; }
+.subcategory-grid .subcategory-card div { flex: 1; }
+.subcategory-grid .subcategory-card strong { display: block; font-size: 14px; }
+.subcategory-grid .subcategory-card small { display: block; color: #856d50; font-size: 11px; margin-top: 2px; }
+.subcategory-grid .subcategory-count { background: #e8d6b8; color: #6b5740; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+.subcategory-head { font-size: 22px; color: #4f3f2c; margin: 10px 0 14px; }
+.related-articles-head { margin-top: 26px; margin-bottom: 10px; color: #6b5740; font-size: 15px; }
+/* T6 周报 */
+.weekly-card { display: grid; gap: 12px; }
+.weekly-week-switch { display: flex; gap: 8px; }
+.weekly-week-switch button { flex: 1; padding: 8px; border: 1px solid #d8c8b0; border-radius: 18px; background: #f6efe2; color: #755e45; font-size: 13px; cursor: pointer; }
+.weekly-week-switch button.selected { border-color: #947a5c; background: #f1e1c8; color: #4f3f2c; font-weight: 700; }
+.weekly-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #856d50; padding: 8px 12px; background: #fbf6ee; border-radius: 12px; }
+.weekly-meta small { color: #a98b67; }
+.weekly-content { white-space: pre-wrap; line-height: 1.85; color: #514940; padding: 16px; background: white; border-radius: 14px; border-left: 3px solid #947a5c; }
 .loading { min-height: 100vh; display: grid; place-content: center; gap: 12px; color: var(--purple); }
 @media (min-width: 700px) {
   body { padding: 24px 0; }
