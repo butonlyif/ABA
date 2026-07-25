@@ -18,6 +18,7 @@ services:
       ABA_DATABASE_URL: postgresql+psycopg://aba:${POSTGRES_PASSWORD}@postgres:5432/aba
       ABA_JWT_SECRET: ${ABA_JWT_SECRET}
       ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8080}
+      ABA_MINIMAX_API_KEY: ${ABA_MINIMAX_API_KEY}
       ABA_FLASHCARD_ASSET_ROOT: /app/assets
       ABA_UPLOAD_PATH: /app/uploads
       ABA_REDIS_URL: redis://redis:6379/0

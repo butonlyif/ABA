@@ -49,13 +49,16 @@ services:
       # 开放版权图标卡（OpenMoji 生成，体积小）
       - ../src/aba/图片卡_网络素材:/app/src/aba/图片卡_网络素材:ro
 
-    # 健康检查：8501 端口能 HTTP 200 即认为活着
+    # 健康检查：/health 端点返回 200 即认为活着
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 10s
+
+    # 替换旧 Streamlit 为家长使用说明页面
+    command: python serve_guide.py
 
     # 资源限制：2核4G 的机器留点余量给系统
     deploy:

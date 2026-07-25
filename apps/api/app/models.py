@@ -42,6 +42,10 @@ class Child(Base):
     diagnosis: Mapped[str | None] = mapped_column(String(255))
     goals: Mapped[str | None] = mapped_column(Text)
     is_current: Mapped[bool] = mapped_column(Boolean, default=False)
+    status_snapshot: Mapped[dict | None] = mapped_column(JSON)  # {domains:{...}, overall_level, updated_at, source}
+    last_report_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    avatar_url: Mapped[str | None] = mapped_column(String(255))
+    avatar_seed: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     owner: Mapped[User] = relationship(back_populates="children")
 
@@ -69,6 +73,8 @@ class Task(Base):
     category: Mapped[str] = mapped_column(String(80), default="基础能力")
     status: Mapped[str] = mapped_column(String(20), default="pending")
     source: Mapped[str] = mapped_column(String(20), default="manual")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_daily: Mapped[bool] = mapped_column(Boolean, default=False)  # 每日任务：完成后不从列表消失
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -107,6 +113,8 @@ class Report(Base):
     title: Mapped[str] = mapped_column(String(200))
     summary: Mapped[str] = mapped_column(Text)
     content: Mapped[dict] = mapped_column(JSON)
+    trend: Mapped[str | None] = mapped_column(String(20))  # progress/regression/stable
+    trend_detail: Mapped[dict | None] = mapped_column(JSON)  # {avg_before, avg_after, delta, domains_changed}
     file_key: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

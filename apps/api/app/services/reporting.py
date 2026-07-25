@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from html import escape
 
 import fitz
@@ -12,6 +13,58 @@ from .storage import get_storage
 def _percentage(session: TrainingSession) -> int:
     values = [trial.result for trial in session.trials]
     return round(values.count("I") / len(values) * 100) if values else 0
+
+
+def _compute_trend(sessions: list[TrainingSession], child: Child) -> tuple[str, dict]:
+    """对比本周与上周的平均正确率，判定进步/回退/稳定。"""
+    now = datetime.utcnow()
+    week_ago = now - timedelta(days=7)
+    two_weeks_ago = now - timedelta(days=14)
+    this_week = [s for s in sessions if s.created_at >= week_ago]
+    last_week = [s for s in sessions if two_weeks_ago <= s.created_at < week_ago]
+    avg_this = round(sum(_percentage(s) for s in this_week) / len(this_week)) if this_week else 0
+    avg_last = round(sum(_percentage(s) for s in last_week) / len(last_week)) if last_week else 0
+    delta = avg_this - avg_last
+    if last_week and delta >= 5:
+        trend = "progress"
+    elif last_week and delta <= -5:
+        trend = "regression"
+    else:
+        trend = "stable"
+    # 按技能维度统计变化
+    skill_map: dict[str, list[int]] = {}
+    for s in this_week:
+        skill_map.setdefault(s.skill_name, []).append(_percentage(s))
+    domains_changed = {
+        skill: round(sum(pcts) / len(pcts))
+        for skill, pcts in skill_map.items()
+    }
+    return trend, {
+        "avg_before": avg_last,
+        "avg_after": avg_this,
+        "delta": delta,
+        "sessions_this_week": len(this_week),
+        "sessions_last_week": len(last_week),
+        "skill_percentages": domains_changed,
+    }
+
+
+def _update_child_status(child: Child, sessions: list[TrainingSession], trend_detail: dict) -> None:
+    """报告完成后更新孩子状态快照（基于训练数据）。"""
+    prev = child.status_snapshot or {}
+    prev_domains = prev.get("domains", {}) if isinstance(prev, dict) else {}
+    # 基于本周训练正确率更新各技能域得分
+    new_domains = dict(prev_domains)
+    for skill, pct in trend_detail.get("skill_percentages", {}).items():
+        new_domains[skill] = pct
+    child.status_snapshot = {
+        "domains": new_domains,
+        "overall_level": prev.get("overall_level", 0),
+        "trend": trend_detail,
+        "updated_at": datetime.utcnow().isoformat(),
+        "source": "report",
+    }
+    child.last_report_at = datetime.utcnow()
 
 
 def _pdf(title: str, summary: str, content: dict) -> bytes:
@@ -73,6 +126,12 @@ def complete_report(report_id: str) -> None:
             "strengths": ["能够持续完成家庭训练"] if sessions else ["已建立训练计划"],
             "next_steps": ["保持短时高频训练", "根据提示等级逐步撤除辅助", "每周复盘一次趋势"],
         }
+        # 计算进步/回退趋势并更新孩子状态
+        trend, trend_detail = _compute_trend(sessions, child)
+        report.trend = trend
+        report.trend_detail = trend_detail
+        report.content["trend"] = {"label": trend, "delta": trend_detail["delta"]}
+        _update_child_status(child, sessions, trend_detail)
         report.file_key = f"reports/{report.user_id}/{report.id}.pdf"
         get_storage().put(report.file_key, _pdf(report.title, report.summary, report.content), "application/pdf")
         report.status = "completed"

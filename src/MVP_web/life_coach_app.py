@@ -294,13 +294,9 @@ def generate_custom_stages(issue_text: str, issue_type: str):
 
 
 def render_emotion_tasks():
-    """渲染情绪教练任务面板"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>🎯 教练任务</h2>
-        <p>根据你的情绪，完成这些小任务来帮助自己</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """渲染情绪教练任务面板（参照 ABA 格式）"""
+    st.markdown('<h2 class="page-title">🎯 教练任务</h2>', unsafe_allow_html=True)
+    st.caption("根据你的情绪，完成这些小任务来帮助自己")
     
     # 从情绪记录推断当前主要情绪
     recent_moods = st.session_state.mood_log[-5:] if st.session_state.mood_log else []
@@ -407,21 +403,46 @@ def render_sidebar():
             st.markdown(f'<div style="font-size:0.85rem;color:{THEME["text_secondary"]};">👤 {memory_system.current_username}</div>', unsafe_allow_html=True)
         st.markdown("---")
 
-        # 导航
-        st.markdown(f'<div style="font-size:0.75rem;color:{THEME["text_light"]};font-weight:600;margin-bottom:0.5rem;">导 航</div>', unsafe_allow_html=True)
+        # 导航（参照 ABA 分组方式）
+        st.markdown("### 📍 功能导航")
 
-        nav_items = [
+        # ── 核心功能 ──
+        st.caption("── 核心功能 ──")
+        core_nav = [
             ("🏠", "首页", "home"),
             ("💬", "教练对话", "chat"),
+            ("😊", "情绪追踪", "emotion"),
+        ]
+        for icon, label, view in core_nav:
+            is_active = st.session_state.coach_view == view
+            btn_type = "primary" if is_active else "secondary"
+            if st.button(f"{icon}  {label}", use_container_width=True, type=btn_type, key=f"nav_{view}"):
+                st.session_state.coach_view = view
+                st.session_state.coach_sub_view = ""
+                st.rerun()
+
+        # ── 成长与学习 ──
+        st.caption("── 成长与学习 ──")
+        growth_nav = [
             ("📚", "知识库", "knowledge"),
             ("🎯", "教练任务", "emotion_tasks"),
-            ("😊", "情绪追踪", "emotion"),
             ("🌱", "成长路径", "growth"),
+        ]
+        for icon, label, view in growth_nav:
+            is_active = st.session_state.coach_view == view
+            btn_type = "primary" if is_active else "secondary"
+            if st.button(f"{icon}  {label}", use_container_width=True, type=btn_type, key=f"nav_{view}"):
+                st.session_state.coach_view = view
+                st.session_state.coach_sub_view = ""
+                st.rerun()
+
+        # ── 记录与报告 ──
+        st.caption("── 记录与报告 ──")
+        record_nav = [
             ("📝", "我的记录", "journal"),
             ("📊", "进展报告", "report"),
         ]
-
-        for icon, label, view in nav_items:
+        for icon, label, view in record_nav:
             is_active = st.session_state.coach_view == view
             btn_type = "primary" if is_active else "secondary"
             if st.button(f"{icon}  {label}", use_container_width=True, type=btn_type, key=f"nav_{view}"):
@@ -447,7 +468,7 @@ def render_sidebar():
 # 首页
 # ====================================
 def render_home():
-    """渲染人生教练首页"""
+    """渲染人生教练首页（参照 ABA 首页风格）"""
     china_tz = timezone(timedelta(hours=8))
     hour = datetime.now(china_tz).hour
     if hour < 6:
@@ -471,10 +492,16 @@ def render_home():
         _all_done.extend(_p.get("tasks_done", []))
     tasks_done = len(set(_all_done)) if _all_done else len(st.session_state.growth_tasks_done)
 
+    # Hero 区域（参照 ABA 首页风格）
     st.markdown(f"""
-    <div class="coach-hero">
-        <h1>{greeting}，{username} 🌿</h1>
-        <p>在照顾孩子的同时，别忘了也照顾好自己。<br>我是你的人生教练，在这里陪你。</p>
+    <div style="background:linear-gradient(135deg, {THEME["primary"]}, {THEME["calm"]});color:#fff;
+         border-radius:16px;padding:2rem 1.5rem;text-align:center;margin-bottom:1.2rem;
+         box-shadow:0 4px 16px {THEME['shadow']};">
+        <div style="font-size:2.5rem;margin-bottom:0.5rem;">🌿</div>
+        <h1 style="color:#fff;margin:0.5rem 0;font-size:1.6rem;">{greeting}，{username}</h1>
+        <p style="color:rgba(255,255,255,0.9);margin:0;font-size:1rem;line-height:1.6;">
+            在照顾孩子的同时，别忘了也照顾好自己。<br>我是你的人生教练，在这里陪你。
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -587,13 +614,9 @@ def generate_coach_response(user_input):
 
 
 def render_chat():
-    """教练对话界面 v2 — 带连贯性和教练方法论"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>💬 教练对话</h2>
-        <p>说出你此刻的感受，我在这里倾听并陪伴你</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """教练对话界面 v2（参照 ABA 格式）"""
+    st.markdown('<h2 class="page-title">💬 教练对话</h2>', unsafe_allow_html=True)
+    st.caption("说出你此刻的感受，我在这里倾听并陪伴你")
 
     # 情绪快捷入口
     st.markdown(f'<div style="font-size:0.8rem;color:{THEME["text_secondary"]};margin-bottom:0.5rem;">此刻你的感受是…</div>', unsafe_allow_html=True)
@@ -674,13 +697,9 @@ def render_chat():
 # 知识库（完整重写）
 # ====================================
 def render_knowledge():
-    """知识库浏览与搜索"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>📚 人生教练知识库</h2>
-        <p>在这里查找任何你感兴趣的话题</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """知识库浏览与搜索（参照 ABA 格式）"""
+    st.markdown('<h2 class="page-title">📚 知识库</h2>', unsafe_allow_html=True)
+    st.caption("在这里查找任何你感兴趣的话题")
 
     # 检查是否有从成长任务跳转过来的文章
     kb_open = st.session_state.pop("kb_open_article", None)
@@ -1002,106 +1021,103 @@ def render_article(art_id):
 # 情绪追踪
 # ====================================
 def render_emotion():
-    """情绪追踪页面 — 记录并理解你的情绪变化"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>😊 情绪追踪</h2>
-        <p>记录情绪不是目的，看见自己的模式才是</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """情绪追踪页面 — 记录并理解你的情绪变化（参照 ABA Tab 结构）"""
+    st.markdown('<h2 class="page-title">😊 情绪追踪</h2>', unsafe_allow_html=True)
+    st.caption("记录情绪不是目的，看见自己的模式才是")
 
-    # 初始化状态
-    if "emotion_selected" not in st.session_state:
-        st.session_state.emotion_selected = None
-    if "emotion_just_saved" not in st.session_state:
-        st.session_state.emotion_just_saved = False
+    # 使用 Tab 组织内容（参照 ABA 的 st.tabs 用法）
+    tab_record, tab_history = st.tabs(["📝 记录情绪", "📋 历史与趋势"])
 
-    # 解释意义
-    with st.expander("🤔 为什么要记录情绪？", expanded=(len(st.session_state.mood_log) == 0)):
-        st.markdown(f'''
-        <div style="font-size:0.9rem;line-height:1.8;color:{THEME["text_primary"]};">
-            作为孩子的家长，你每天都在经历各种情绪——焦虑、疲惫、自责、偶尔的喜悦。
-            这些情绪往往是<strong>自动发生的</strong>，你可能没来得及注意到就已经被影响了。<br><br>
-            情绪追踪的价值在于：<br>
-            <strong>1. 发现模式</strong> —— 哪些情境最容易触发焦虑？疲劳和情绪之间有关联吗？<br>
-            <strong>2. 提前预警</strong> —— 当你开始注意到连续几天情绪下滑，可以提前采取措施<br>
-            <strong>3. 看见变化</strong> —— 回顾时你会发现，原来自己比想象中更坚强<br>
-            <strong>4. 和教练对话的线索</strong> —— 你的情绪记录帮助教练更准确地理解你的状态<br><br>
-            <em>你只需要选一个心情，写一两句话就好。不需要长篇大论，诚实最重要。</em>
-        </div>
-        ''', unsafe_allow_html=True)
+    # ── Tab 1: 记录情绪 ──
+    with tab_record:
+        # 初始化状态
+        if "emotion_just_saved" not in st.session_state:
+            st.session_state.emotion_just_saved = False
 
-    st.markdown("---")
+        # 解释意义
+        with st.expander("🤔 为什么要记录情绪？", expanded=(len(st.session_state.mood_log) == 0)):
+            st.markdown(f'''
+            <div style="font-size:0.9rem;line-height:1.8;color:{THEME["text_primary"]};">
+                作为孩子的家长，你每天都在经历各种情绪——焦虑、疲惫、自责、偶尔的喜悦。
+                这些情绪往往是<strong>自动发生的</strong>，你可能没来得及注意到就已经被影响了。<br><br>
+                情绪追踪的价值在于：<br>
+                <strong>1. 发现模式</strong> —— 哪些情境最容易触发焦虑？疲劳和情绪之间有关联吗？<br>
+                <strong>2. 提前预警</strong> —— 当你开始注意到连续几天情绪下滑，可以提前采取措施<br>
+                <strong>3. 看见变化</strong> —— 回顾时你会发现，原来自己比想象中更坚强<br>
+                <strong>4. 和教练对话的线索</strong> —— 你的情绪记录帮助教练更准确地理解你的状态<br><br>
+                <em>你只需要选一个心情，写一两句话就好。不需要长篇大论，诚实最重要。</em>
+            </div>
+            ''', unsafe_allow_html=True)
 
-    # === 新建情绪记录 ===
-    st.markdown(f'<div class="section-title">记录此刻的心情</div>', unsafe_allow_html=True)
+        st.markdown("---")
 
-    # 显示保存成功提示
-    if st.session_state.emotion_just_saved:
-        st.success(f"情绪记录已保存 💚")
-        st.session_state.emotion_just_saved = False
+        # === 新建情绪记录 ===
+        st.markdown(f'<div class="section-title">记录此刻的心情</div>', unsafe_allow_html=True)
 
-    # 情绪选择 — 用 selectbox 代替 button，避免 rerun 丢失状态
-    mood_options = [(emoji, label) for emoji, label in MOOD_EMOJIS.items()]
-    mood_labels = [f"{emoji}  {label}" for emoji, label in mood_options]
+        # 显示保存成功提示
+        if st.session_state.emotion_just_saved:
+            st.success(f"情绪记录已保存 💚")
+            st.session_state.emotion_just_saved = False
 
-    selected_index = st.selectbox(
-        "选择你现在的心情",
-        range(len(mood_options)),
-        format_func=lambda i: mood_labels[i],
-        key="emotion_mood_select",
-        label_visibility="collapsed",
-    )
+        # 情绪选择 — 用 selectbox 代替 button，避免 rerun 丢失状态
+        mood_options = [(emoji, label) for emoji, label in MOOD_EMOJIS.items()]
+        mood_labels = [f"{emoji}  {label}" for emoji, label in mood_options]
 
-    if selected_index is not None:
-        selected_mood = mood_options[selected_index]
+        selected_index = st.selectbox(
+            "选择你现在的心情",
+            range(len(mood_options)),
+            format_func=lambda i: mood_labels[i],
+            key="emotion_mood_select",
+            label_visibility="collapsed",
+        )
 
-        # 详细记录表单
-        detail_cols = st.columns(2)
-        with detail_cols[0]:
-            trigger = st.text_input("发生了什么？（触发事件）", placeholder="如：带孩子去超市，他突然大哭...", key="emotion_trigger")
-            intensity = st.slider("情绪强度", 1, 10, 5, key="emotion_intensity",
-                                  help="1=很轻微，10=非常强烈")
-        with detail_cols[1]:
-            body_feeling = st.text_input("身体的感受", placeholder="如：心跳加速、肩膀紧绷、胃不舒服...", key="emotion_body")
-            thought = st.text_input("当时的想法", placeholder="如：别人都在看我，我是不是做错了...", key="emotion_thought")
+        if selected_index is not None:
+            selected_mood = mood_options[selected_index]
 
-        note = st.text_area("想补充的话（可选）", height=60, placeholder="任何你想记录的...", key="emotion_note")
+            # 详细记录表单
+            detail_cols = st.columns(2)
+            with detail_cols[0]:
+                trigger = st.text_input("发生了什么？（触发事件）", placeholder="如：带孩子去超市，他突然大哭...", key="emotion_trigger")
+                intensity = st.slider("情绪强度", 1, 10, 5, key="emotion_intensity",
+                                      help="1=很轻微，10=非常强烈")
+            with detail_cols[1]:
+                body_feeling = st.text_input("身体的感受", placeholder="如：心跳加速、肩膀紧绷、胃不舒服...", key="emotion_body")
+                thought = st.text_input("当时的想法", placeholder="如：别人都在看我，我是不是做错了...", key="emotion_thought")
 
-        save_cols = st.columns([0.7, 0.3])
-        with save_cols[1]:
-            if st.button("✅ 保存记录", use_container_width=True, type="primary", key="save_mood"):
-                entry = {
-                    "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "emoji": selected_mood[0],
-                    "label": selected_mood[1],
-                    "score": MOOD_SCORES.get(selected_mood[0], 4),
-                    "intensity": intensity,
-                    "trigger": trigger,
-                    "body_feeling": body_feeling,
-                    "thought": thought,
-                    "note": note,
-                }
-                st.session_state.mood_log.append(entry)
-                # 同时存一份到综合记录
-                st.session_state.personal_records.append({
-                    "id": f"emo_{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                    "type": "情绪记录",
-                    "type_icon": "😊",
-                    "time": entry["time"],
-                    "title": f"{selected_mood[0]} {selected_mood[1]}（强度{intensity}/10）",
-                    "content": f"触发：{trigger or '未记录'}\n身体感受：{body_feeling or '未记录'}\n想法：{thought or '未记录'}",
-                    "emoji": selected_mood[0],
-                    "mood_score": entry["score"],
-                })
-                save_coach_data()
-                st.session_state.emotion_just_saved = True
-                st.rerun()
+            note = st.text_area("想补充的话（可选）", height=60, placeholder="任何你想记录的...", key="emotion_note")
 
-    st.markdown("---")
+            save_cols = st.columns([0.7, 0.3])
+            with save_cols[1]:
+                if st.button("✅ 保存记录", use_container_width=True, type="primary", key="save_mood"):
+                    entry = {
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "emoji": selected_mood[0],
+                        "label": selected_mood[1],
+                        "score": MOOD_SCORES.get(selected_mood[0], 4),
+                        "intensity": intensity,
+                        "trigger": trigger,
+                        "body_feeling": body_feeling,
+                        "thought": thought,
+                        "note": note,
+                    }
+                    st.session_state.mood_log.append(entry)
+                    # 同时存一份到综合记录
+                    st.session_state.personal_records.append({
+                        "id": f"emo_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                        "type": "情绪记录",
+                        "type_icon": "😊",
+                        "time": entry["time"],
+                        "title": f"{selected_mood[0]} {selected_mood[1]}（强度{intensity}/10）",
+                        "content": f"触发：{trigger or '未记录'}\n身体感受：{body_feeling or '未记录'}\n想法：{thought or '未记录'}",
+                        "emoji": selected_mood[0],
+                        "mood_score": entry["score"],
+                    })
+                    save_coach_data()
+                    st.session_state.emotion_just_saved = True
+                    st.rerun()
 
-    # === 历史记录 & 趋势分析 ===
-    st.markdown(f'<div class="section-title">情绪历史与趋势</div>', unsafe_allow_html=True)
+    # ── Tab 2: 历史与趋势 ──
+    with tab_history:
 
     if not st.session_state.mood_log:
         st.markdown(f'''
@@ -1204,13 +1220,12 @@ def render_emotion():
 # 成长路径
 # ====================================
 def render_growth():
-    """成长路径页面 — ACT 六大核心过程 + 议题驱动的成长项目"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>🌱 成长路径</h2>
-        <p>选择一个困扰你的议题，通过 ACT 六大核心过程逐步成长</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """成长路径页面 — ACT 六大核心过程 + 议题驱动的成长项目（参照 ABA Tab 结构）"""
+    st.markdown('<h2 class="page-title">🌱 成长路径</h2>', unsafe_allow_html=True)
+    st.caption("选择一个困扰你的议题，通过 ACT 六大核心过程逐步成长")
+
+    # 使用 Tab 组织内容
+    tab_active, tab_completed, tab_paused = st.tabs(["🎯 当前议题", "🏆 已完成", "⏸️ 已暂停"])
 
     # ACT 六大核心过程说明
     with st.expander("🧠 了解 ACT 六大核心过程 — 为什么要有这 6 个阶段？", expanded=False):
@@ -1645,13 +1660,15 @@ def render_growth():
 
 
 def render_journal():
-    """我的记录 — 综合记录中心，支持多种类型的记录"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>📝 我的记录</h2>
-        <p>把想法、感受、练习都记录下来，回头看看自己的变化</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """我的记录 — 综合记录中心（参照 ABA Tab 结构）"""
+    st.markdown('<h2 class="page-title">📝 我的记录</h2>', unsafe_allow_html=True)
+    st.caption("把想法、感受、练习都记录下来，回头看看自己的变化")
+
+    # 使用 Tab 组织内容（参照 ABA 的 st.tabs 用法）
+    tab_new, tab_list = st.tabs(["➕ 新建记录", "📋 记录列表"])
+
+    # ── Tab 1: 新建记录 ──
+    with tab_new:
 
     # === 新建记录 ===
     # 检查是否有从成长任务跳转过来的预填内容
@@ -1716,9 +1733,9 @@ def render_journal():
                 st.success("记录已保存 💚")
                 st.rerun()
 
-    st.markdown("---")
-
-    # === 搜索和筛选 ===
+    # ── Tab 2: 记录列表 ──
+    with tab_list:
+        # === 搜索和筛选 ===
     st.markdown(f'<div class="section-title">所有记录</div>', unsafe_allow_html=True)
 
     all_records = st.session_state.personal_records
@@ -1830,13 +1847,12 @@ def render_journal():
 # 进展报告（新增）
 # ====================================
 def render_report():
-    """进展报告页面 — 按周分组 + AI 生成周报总结"""
-    st.markdown(f"""
-    <div class="coach-hero-small">
-        <h2>📊 我的成长报告</h2>
-        <p>回顾你的教练旅程，看见自己的变化</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """进展报告页面 — 按周分组 + AI 生成周报总结（参照 ABA Tab 结构）"""
+    st.markdown('<h2 class="page-title">📊 我的成长报告</h2>', unsafe_allow_html=True)
+    st.caption("回顾你的教练旅程，看见自己的变化")
+
+    # 使用 Tab 组织内容（参照 ABA 的 st.tabs 用法）
+    tab_overview, tab_weekly, tab_timeline = st.tabs(["📈 数据概览", "🤖 AI周报", "📅 按周回顾"])
 
     mood_log = st.session_state.mood_log
     personal_records = st.session_state.personal_records
@@ -1847,8 +1863,10 @@ def render_report():
     coach_messages = st.session_state.coach_messages
     total_tasks = sum(get_project_total_tasks(_p) for _p in st.session_state.growth_projects) if st.session_state.growth_projects else sum(len(s["tasks"]) for s in GROWTH_STAGES)
 
-    # === 核心数据卡片 ===
-    st.markdown(f'<div class="section-title">核心数据</div>', unsafe_allow_html=True)
+    # ── Tab 1: 数据概览 ──
+    with tab_overview:
+        # === 核心数据卡片 ===
+        st.markdown(f'<div class="section-title">核心数据</div>', unsafe_allow_html=True)
     stat_cols = st.columns(5)
     with stat_cols[0]:
         st.markdown(f'''
@@ -1891,12 +1909,12 @@ def render_report():
         </div>
         ''', unsafe_allow_html=True)
 
-    st.markdown("---")
+    # ── Tab 2: AI 周报 ──
+    with tab_weekly:
+        # === AI 生成周报按钮 ===
+        st.markdown(f'<div class="section-title">AI 周报总结</div>', unsafe_allow_html=True)
 
-    # === AI 生成周报按钮 ===
-    st.markdown(f'<div class="section-title">AI 周报总结</div>', unsafe_allow_html=True)
-
-    week_col1, week_col2 = st.columns([0.4, 0.6])
+        week_col1, week_col2 = st.columns([0.4, 0.6])
     with week_col1:
         # 获取所有有数据的周列表
         all_dates = []
@@ -2044,10 +2062,10 @@ def render_report():
         </div>
         ''', unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # === 按周分组的详细记录 ===
-    st.markdown(f'<div class="section-title">按周回顾</div>', unsafe_allow_html=True)
+    # ── Tab 3: 按周回顾 ──
+    with tab_timeline:
+        # === 按周分组的详细记录 ===
+        st.markdown(f'<div class="section-title">按周回顾</div>', unsafe_allow_html=True)
 
     # 合并所有数据并按时间排序
     all_items = []

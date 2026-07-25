@@ -51,6 +51,10 @@ class ChildIn(BaseModel):
 class ChildOut(ChildIn, ORMModel):
     id: str
     is_current: bool
+    status_snapshot: dict | None = None
+    last_report_at: datetime | None = None
+    avatar_url: str | None = None
+    avatar_seed: str | None = None
     created_at: datetime
 
 
@@ -73,6 +77,7 @@ class TaskIn(BaseModel):
     name: str
     description: str | None = None
     category: str = "基础能力"
+    is_daily: bool = False
 
 
 class TaskOut(ORMModel):
@@ -83,11 +88,19 @@ class TaskOut(ORMModel):
     category: str
     status: str
     source: str
+    sort_order: int = 0
+    is_daily: bool = False
     created_at: datetime
 
 
 class TaskPatch(BaseModel):
-    status: Literal["pending", "active", "completed", "paused"]
+    status: Literal["pending", "active", "completed", "paused"] | None = None
+    sort_order: int | None = None
+
+
+class ReorderBody(BaseModel):
+    child_id: str
+    order: list[dict[str, int]]  # [{"id": "...", "sort_order": 0}, ...]
 
 
 class SessionIn(BaseModel):
@@ -123,6 +136,8 @@ class ReportOut(ORMModel):
     title: str
     summary: str
     content: dict[str, Any]
+    trend: str | None = None
+    trend_detail: dict[str, Any] | None = None
     file_url: str | None = None
     created_at: datetime
 

@@ -20,16 +20,17 @@ from .database import Base, SessionLocal, engine, get_db
 from .models import AiUsage, Assessment, AuditLog, ChatMessage, Child, ExpertAssignment, ExpertMessage, ExpertProfile, GrowthProgress, JournalEntry, MoodEntry, RefreshToken, Report, SystemEvent, Task, TrainingSession, Trial, User
 from .schemas import (
     AdminPasswordReset, AdminUserCreate, AssessmentOut, AssessmentSubmit, ChatAnswer, ChatOut, ChatRequest, ChildIn, ChildOut, Credentials,
-    ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, RegisterCredentials, ReportOut, ReportRequest, SessionIn, SessionOut, TaskIn,
+    ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, RegisterCredentials, ReportOut, ReportRequest, ReorderBody, SessionIn, SessionOut, TaskIn,
     TaskOut, TaskPatch, TokenPair, TrialIn, UserOut,
 )
-from .services.assessment import questions as real_assessment_questions, score_and_tasks
-from .services.ai import generate
+from .services.assessment import questions as real_assessment_questions, score_and_tasks, skill_catalog
+from .services.ai import analyze_medical_record, generate
 from .services.flashcards import card as flashcard_image, catalog as flashcard_catalog
 from .services.jobs import enqueue_report
 from .services.coach_content import article as coach_article, articles as coach_articles
 from .services.rate_limit import limiter
 from .services.storage import get_storage
+from .services.avatar import avatar_url_for, generate_avatar_svg
 from .security import (
     create_access_token, current_user, hash_password, random_refresh_token,
     token_digest, verify_password,
@@ -246,6 +247,62 @@ def create_child(body: ChildIn, user: User = Depends(current_user), db: Session 
     return child
 
 
+@app.post("/api/v1/children/{child_id}/import-record", response_model=ChildOut)
+async def import_medical_record(child_id: str, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """上传病例文件（txt/md/pdf），AI 分析后更新孩子状态快照。"""
+    child = owned_child(db, user, child_id)
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        text = body.get("text", "")
+    else:
+        raw = await request.body()
+        text = raw.decode("utf-8", errors="ignore")
+    if not text.strip():
+        raise HTTPException(400, "病例内容为空")
+    snapshot, summary = analyze_medical_record(text)
+    if snapshot:
+        from datetime import datetime
+        snapshot["updated_at"] = datetime.utcnow().isoformat()
+        child.status_snapshot = snapshot
+        db.commit()
+        db.refresh(child)
+    return child
+
+
+@app.post("/api/v1/children/{child_id}/upload-record", response_model=ChildOut)
+async def upload_medical_record(child_id: str, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """上传病例文件（txt/md/pdf），AI 分析后更新孩子状态快照。"""
+    child = owned_child(db, user, child_id)
+    raw = await file.read()
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext == "pdf":
+        import fitz
+        doc = fitz.open(stream=raw, filetype="pdf")
+        text = "".join(page.get_text() for page in doc)
+    elif ext in ("doc", "docx"):
+        import zipfile, re
+        try:
+            with zipfile.ZipFile(__import__("io").BytesIO(raw)) as z:
+                xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+                text = re.sub(r"<[^>]+>", "", xml)
+        except Exception:
+            text = raw.decode("utf-8", errors="ignore")
+    else:
+        text = raw.decode("utf-8", errors="ignore")
+    if not text.strip():
+        raise HTTPException(400, "无法从文件中提取文本")
+    snapshot, summary = analyze_medical_record(text)
+    if snapshot:
+        from datetime import datetime
+        snapshot["updated_at"] = datetime.utcnow().isoformat()
+        child.status_snapshot = snapshot
+        db.commit()
+        db.refresh(child)
+    return child
+
+
 @app.patch("/api/v1/children/{child_id}/current", response_model=ChildOut)
 def set_current_child(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     child = owned_child(db, user, child_id)
@@ -254,6 +311,100 @@ def set_current_child(child_id: str, user: User = Depends(current_user), db: Ses
     db.commit()
     db.refresh(child)
     return child
+
+
+# ─── 孩子头像 ──────────────────────────────────────────────
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_AVATAR_BYTES = 5 * 1024 * 1024
+
+
+@app.post("/api/v1/children/{child_id}/avatar", response_model=ChildOut)
+async def upload_child_avatar(
+    child_id: str,
+    avatar: UploadFile = File(...),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    """上传孩子头像（jpg/png/webp，≤ 5MB）"""
+    child = owned_child(db, user, child_id)
+    if avatar.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(415, "仅支持 JPG、PNG 或 WebP 图片")
+    content = await avatar.read(MAX_AVATAR_BYTES + 1)
+    if len(content) > MAX_AVATAR_BYTES:
+        raise HTTPException(413, "图片不能超过 5MB")
+    try:
+        image = Image.open(io.BytesIO(content))
+        image.load()
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(400, "无法识别该图片")
+    if image.mode in ("RGBA", "P"):
+        image = image.convert("RGB")
+    avatar_dir = upload_root / "child_avatars"
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    target = avatar_dir / f"{child.id}.webp"
+    image.save(target, "WEBP", quality=88, method=6)
+    child.avatar_url = avatar_url_for(child.id, child.avatar_seed)
+    if not child.avatar_seed:
+        child.avatar_seed = (child.name or "星")[:80]
+    db.add(AuditLog(
+        user_id=user.id, action="child.avatar_uploaded",
+        resource_type="child", resource_id=child.id,
+        details={"content_type": "image/webp"},
+    ))
+    db.commit()
+    db.refresh(child)
+    return child
+
+
+@app.delete("/api/v1/children/{child_id}/avatar", response_model=ChildOut)
+def remove_child_avatar(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """移除孩子头像（之后回退到自动生成卡通）"""
+    child = owned_child(db, user, child_id)
+    target = upload_root / "child_avatars" / f"{child.id}.webp"
+    target.unlink(missing_ok=True)
+    child.avatar_url = None
+    if not child.avatar_seed:
+        child.avatar_seed = (child.name or "星")[:80]
+    db.add(AuditLog(
+        user_id=user.id, action="child.avatar_removed",
+        resource_type="child", resource_id=child.id, details={},
+    ))
+    db.commit()
+    db.refresh(child)
+    return child
+
+
+@app.post("/api/v1/children/{child_id}/avatar/regenerate", response_model=ChildOut)
+def regenerate_child_avatar(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """基于 seed 自动生成卡通头像（清空已上传文件，用 SVG 兜底）"""
+    child = owned_child(db, user, child_id)
+    if not child.avatar_seed:
+        child.avatar_seed = (child.name or "星")[:80]
+    target = upload_root / "child_avatars" / f"{child.id}.webp"
+    target.unlink(missing_ok=True)
+    child.avatar_url = avatar_url_for(child.id, child.avatar_seed)
+    db.add(AuditLog(
+        user_id=user.id, action="child.avatar_regenerated",
+        resource_type="child", resource_id=child.id,
+        details={"seed": child.avatar_seed},
+    ))
+    db.commit()
+    db.refresh(child)
+    return child
+
+
+@app.get("/api/v1/child-avatars/{child_id}", include_in_schema=False)
+def child_avatar(child_id: str, db: Session = Depends(get_db)):
+    """头像静态读取：优先返回已上传 webp；缺失走卡通 SVG。"""
+    target = upload_root / "child_avatars" / f"{child_id}.webp"
+    if target.is_file():
+        # 注意：短缓存时间，便于上传后立刻看到
+        return FileResponse(target, media_type="image/webp", headers={"Cache-Control": "public, max-age=60"})
+    # 兜底：根据 seed 渲染 SVG
+    child = db.get(Child, child_id)
+    seed = child.avatar_seed if child else child_id
+    svg = generate_avatar_svg(seed or "星")
+    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=60"})
 
 
 @app.get("/api/v1/assessments/questions")
@@ -291,6 +442,15 @@ def submit_assessment(
     ]
     db.add(assessment)
     db.add_all(generated)
+    # 更新孩子状态快照
+    child_obj = owned_child(db, user, body.child_id)
+    child_obj.status_snapshot = {
+        "domains": dict(result["domain_scores"]),
+        "domain_levels": dict(result["domain_levels"]),
+        "overall_level": result["overall_level"],
+        "updated_at": datetime.utcnow().isoformat(),
+        "source": "assessment",
+    }
     db.commit()
     db.refresh(assessment)
     return AssessmentOut(
@@ -299,20 +459,49 @@ def submit_assessment(
     )
 
 
+@app.get("/api/v1/training/templates")
+def training_templates(user: User = Depends(current_user)):
+    """训练技能模板库（按领域分组），供"添加训练"指引使用。"""
+    return skill_catalog()
+
+
 @app.get("/api/v1/tasks", response_model=list[TaskOut])
 def list_tasks(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     owned_child(db, user, child_id)
-    return db.scalars(select(Task).where(Task.user_id == user.id, Task.child_id == child_id).order_by(Task.created_at.desc())).all()
+    return db.scalars(select(Task).where(Task.user_id == user.id, Task.child_id == child_id).order_by(Task.sort_order.asc(), Task.created_at.desc())).all()
 
 
 @app.post("/api/v1/tasks", response_model=TaskOut, status_code=201)
 def create_task(body: TaskIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     owned_child(db, user, body.child_id)
-    task = Task(user_id=user.id, **body.model_dump())
+    max_order = db.scalar(select(func.coalesce(func.max(Task.sort_order), -1)).where(Task.user_id == user.id, Task.child_id == body.child_id)) or -1
+    task = Task(user_id=user.id, sort_order=max_order + 1, **body.model_dump())
     db.add(task)
     db.commit()
     db.refresh(task)
     return task
+
+
+# 具体路径必须在 /{task_id} 之前，否则 "reorder" 会被匹配为 task_id
+@app.patch("/api/v1/tasks/reorder", response_model=list[TaskOut])
+def reorder_tasks(child_id: str, body: ReorderBody, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    owned_child(db, user, child_id)
+    for item in body.order:
+        t = db.scalar(select(Task).where(Task.id == item["id"], Task.user_id == user.id))
+        if t:
+            t.sort_order = item["sort_order"]
+    db.commit()
+    return db.scalars(select(Task).where(Task.user_id == user.id, Task.child_id == child_id).order_by(Task.sort_order.asc())).all()
+
+
+@app.delete("/api/v1/tasks/{task_id}", status_code=204)
+def delete_task(task_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == user.id))
+    if not task:
+        raise HTTPException(404, "任务不存在")
+    db.delete(task)
+    db.commit()
+    return None
 
 
 @app.patch("/api/v1/tasks/{task_id}", response_model=TaskOut)
@@ -320,7 +509,10 @@ def update_task(task_id: str, body: TaskPatch, user: User = Depends(current_user
     task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == user.id))
     if not task:
         raise HTTPException(404, "任务不存在")
-    task.status = body.status
+    if body.status is not None:
+        task.status = body.status
+    if body.sort_order is not None:
+        task.sort_order = body.sort_order
     db.commit()
     db.refresh(task)
     return task
@@ -416,7 +608,8 @@ def finish_session(session_id: str, user: User = Depends(current_user), db: Sess
     session.finished_at = datetime.now(timezone.utc)
     if session.task_id:
         task = db.scalar(select(Task).where(Task.id == session.task_id, Task.user_id == user.id))
-        if task:
+        if task and not task.is_daily:
+            # 每日任务保持 active，普通任务完成后隐藏（不删除，报告仍使用）
             task.status = "completed"
     db.commit()
     return session_out(session)
@@ -549,6 +742,20 @@ def chat_messages(product: str = "aba", user: User = Depends(current_user), db: 
         ChatMessage.user_id == user.id, ChatMessage.product == product
     ).order_by(ChatMessage.created_at.desc()).limit(50)).all()
     return rows[::-1]
+
+
+@app.delete("/api/v1/chat/messages")
+def clear_chat_messages(product: str = "aba", user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """清空指定产品的聊天历史（软删除：直接物理删除聊天记录）。"""
+    if product not in {"aba", "coach"}:
+        raise HTTPException(400, "未知产品")
+    rows = db.scalars(select(ChatMessage).where(
+        ChatMessage.user_id == user.id, ChatMessage.product == product
+    )).all()
+    for row in rows:
+        db.delete(row)
+    db.commit()
+    return {"deleted": len(rows)}
 
 
 @app.get("/api/v1/coach/overview")

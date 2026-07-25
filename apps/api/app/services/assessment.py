@@ -43,13 +43,37 @@ def score_and_tasks(answers: dict[str, int]) -> tuple[dict, list[dict]]:
         skill = skill_map.get(skill_id)
         if not skill:
             continue
-        steps = skill.get("steps") or skill.get("procedure") or []
-        description = "；".join(steps[:2]) if isinstance(steps, list) else str(steps)
+        description = skill.get("description") or ""
+        if not description:
+            steps = skill.get("steps") or skill.get("procedure") or []
+            description = "；".join(steps[:2]) if isinstance(steps, list) and steps else f"从{skill['name']}的基础步骤开始练习。"
         tasks.append({
             "name": skill["name"],
             "category": skill["domain"],
-            "description": description or f"从{skill['name']}的基础步骤开始练习。",
+            "description": description,
             "skill_id": skill_id,
         })
     return result, tasks
+
+
+def skill_catalog() -> list[dict[str, Any]]:
+    """返回全部训练技能模板，按领域分组，供"添加训练"指引使用。"""
+    assessment, curriculum = _load_legacy_modules()
+    domain_names = assessment.DOMAIN_NAMES
+    groups: dict[str, list[dict]] = {}
+    for skill in curriculum.SKILLS:
+        domain = skill.get("domain", "其他")
+        domain_label = domain_names.get(domain, domain)
+        groups.setdefault(domain_label, []).append({
+            "name": skill["name"],
+            "category": domain_label,
+            "description": skill.get("description") or "",
+            "level": skill.get("level", 1),
+            "group": skill.get("group", ""),
+            "flashcard_category": skill.get("flashcard_category"),
+        })
+    return [
+        {"domain": domain, "count": len(items), "skills": items}
+        for domain, items in sorted(groups.items())
+    ]
 

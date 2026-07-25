@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家长使用说明 · 星星家庭</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #fdfaf3;
+    --bg-2: #f7efe0;
+    --card: #ffffff;
+    --ink: #2f2e2a;
+    --soft: #6b6a64;
+    --line: #efe7d4;
+    --warm: #e8a87c;
+    --warm-deep: #d27c4f;
+    --warm-soft: #fdebd6;
+    --aba: #5a8cc4;
+    --aba-soft: #e7f1ff;
+    --coach: #7fb89a;
+    --coach-soft: #e3f1e9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.85;
+    font-size: 17px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部条 */
+  .topbar {
+    background: rgba(253, 250, 243, 0.94);
+    backdrop-filter: saturate(160%) blur(8px);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .topbar-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .topbar .brand {
+    font-weight: 700;
+    color: var(--ink);
+    font-size: 16px;
+  }
+  .topbar .btn-sm {
+    padding: 6px 18px;
+    background: var(--warm-deep);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s;
+  }
+  .topbar .btn-sm:hover { background: #c06a40; }
+
+  .wrap {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 22px 96px;
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(135deg, #fff4e3 0%, #fde2c8 100%);
+    border-radius: 24px;
+    padding: 48px 36px;
+    margin-bottom: 40px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 10px 32px rgba(216, 145, 90, 0.12);
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    right: -40px;
+    top: -40px;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+  }
+  .hero h1 {
+    margin: 0 0 10px;
+    font-size: 32px;
+    color: var(--warm-deep);
+    letter-spacing: 0.5px;
+  }
+  .hero p {
+    margin: 0 0 24px;
+    color: var(--soft);
+    font-size: 17px;
+  }
+  .hero .btn-lg {
+    display: inline-block;
+    padding: 12px 36px;
+    background: var(--warm-deep);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 17px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: background 0.2s;
+    box-shadow: 0 6px 20px rgba(210, 124, 79, 0.3);
+  }
+  .hero .btn-lg:hover { background: #c06a40; }
+
+  /* 标题 */
+  h2.section {
+    font-size: 26px;
+    color: var(--warm-deep);
+    margin-top: 56px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--warm-soft);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2.section .icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--warm-soft);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--warm-deep);
+    font-weight: 700;
+  }
+  h3.tab {
+    font-size: 19px;
+    color: var(--ink);
+    margin-top: 24px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h3.tab::before {
+    content: attr(data-num);
+    background: var(--warm-deep);
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  p { margin: 12px 0; }
+
+  /* 大分组卡 */
+  .group {
+    border-radius: 22px;
+    padding: 28px 28px 32px;
+    margin: 24px 0;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.05);
+  }
+  .group-aba {
+    background: linear-gradient(135deg, #f3f8ff 0%, #e7f1ff 100%);
+    border: 1px solid #d2e4f7;
+  }
+  .group-coach {
+    background: linear-gradient(135deg, #f1faf4 0%, #e3f1e9 100%);
+    border: 1px solid #d3e9dc;
+  }
+  .group h2.section { margin-top: 0; }
+
+  /* Tab 卡 */
+  .tab-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 20px 24px;
+    margin: 14px 0;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+  }
+  .tab-card .lead {
+    color: var(--soft);
+    margin: 0 0 12px;
+    font-size: 15px;
+  }
+  .tab-card ul { padding-left: 20px; margin: 8px 0; }
+  .tab-card li { margin: 6px 0; }
+
+  /* Chip */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+  .chip {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .chip.primary { background: var(--warm-soft); color: var(--warm-deep); border-color: var(--warm); font-weight: 600; }
+  .chip.aba { background: var(--aba-soft); color: var(--aba); border-color: #b6d3ee; }
+  .chip.coach { background: var(--coach-soft); color: #3f7a5e; border-color: #c5e1d2; }
+
+  /* 步骤条 */
+  .steps6 {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin: 14px 0;
+  }
+  .steps6 .step {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 8px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .steps6 .step b { display: block; color: var(--coach); font-size: 15px; }
+  .steps6 .step small { color: var(--soft); font-size: 12px; }
+
+  /* 标签云 */
+  .tag-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  .tag {
+    background: var(--coach-soft);
+    color: #3f7a5e;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 14px;
+  }
+
+  /* 强度条 */
+  .intensity {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  .intensity span {
+    flex: 1;
+    background: var(--bg-2);
+    border-radius: 8px;
+    padding: 8px 0;
+    text-align: center;
+    font-weight: 700;
+    color: var(--soft);
+  }
+  .intensity span.hot { background: var(--warm-soft); color: var(--warm-deep); }
+
+  /* 5 试次 */
+  .trial-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .trial {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 8px;
+    text-align: center;
+  }
+  .trial b { display: block; font-size: 22px; color: var(--warm-deep); font-weight: 800; }
+  .trial small { color: var(--soft); }
+
+  /* mermaid */
+  .mermaid {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 28px 20px;
+    text-align: center;
+    margin: 24px 0;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
+  }
+  .mermaid svg { max-width: 100%; height: auto; }
+
+  /* 切换说明 */
+  .switch {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px 22px;
+    margin: 12px 0;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+  }
+  .switch b { color: var(--warm-deep); }
+
+  /* Footer */
+  .footer {
+    margin-top: 56px;
+    padding: 32px 24px;
+    background: linear-gradient(135deg, #fff4e3 0%, #fde2c8 100%);
+    border-radius: 20px;
+    text-align: center;
+    color: var(--warm-deep);
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 8px 24px rgba(216, 145, 90, 0.12);
+  }
+  .footer small {
+    display: block;
+    margin-top: 8px;
+    color: var(--soft);
+    font-weight: 400;
+    font-size: 14px;
+  }
+
+  /* 移动端 */
+  @media (max-width: 720px) {
+    body { font-size: 16px; }
+    .hero { padding: 32px 22px; }
+    .hero h1 { font-size: 26px; }
+    h2.section { font-size: 22px; }
+    .steps6 { grid-template-columns: repeat(3, 1fr); }
+    .trial-row { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .trial b { font-size: 18px; }
+    .group { padding: 20px 18px 24px; }
+    .tab-card { padding: 16px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">星星家庭</span>
+    <a class="btn-sm" href="http://170.106.143.145:8080" target="_blank" rel="noopener">进入应用</a>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section class="hero">
+    <h1>家长使用说明 · 星星家庭</h1>
+    <p>写给家长的话 — 这一份是「产品里到底有什么」的小地图。</p>
+    <a class="btn-lg" href="http://170.106.143.145:8080" target="_blank" rel="noopener">进入应用</a>
+  </section>
+
+  <h2 id="entry" class="section"><span class="icon">门</span>打开应用会看到什么</h2>
+  <p>登录页会让你在<b>两个入口</b>里选一个：</p>
+  <div class="chips">
+    <span class="chip aba">ABA 智能助手 · 孩子</span>
+    <span class="chip coach">家长陪伴 · 家长</span>
+  </div>
+  <p>两个空间用同一个账号，<b>不用重新登录</b>就能来回切换。</p>
+
+  <div class="mermaid">
+flowchart LR
+  Login[登录 / 注册] --> Choose{选择空间}
+  Choose -->|ABA 智能助手| ABA[孩子空间]
+  Choose -->|家长陪伴| Coach[家长空间]
+  ABA <-- 切换 --> Coach
+  </div>
+
+  <div class="group group-aba">
+    <h2 id="aba" class="section"><span class="icon">A</span>ABA 智能助手</h2>
+    <p>底部从左到右 5 个标签：<b>首页 · 孩子 · 训练 · 进展 · 我的</b></p>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="1">首页</h3>
+      <p class="lead">进来第一屏是「有什么我可以帮你的？」</p>
+      <ul>
+        <li><b>问 AI</b>：直接描述场景，按发送。系统会从 12 分册知识库（326 块）里找答案，并标注来源。</li>
+        <li><b>问专家</b>：在可选项里选一位专家，之后消息都由他回复。</li>
+        <li>右上角可「导出」「清空」对话。</li>
+      </ul>
+      <div class="chips">
+        <span class="chip">问 AI</span>
+        <span class="chip">问专家</span>
+        <span class="chip">导出</span>
+        <span class="chip">清空</span>
+      </div>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="2">孩子</h3>
+      <p class="lead">这一页解决三件事：有谁 / 在哪 / 怎么开始。</p>
+      <ul>
+        <li><b>当前孩子卡片</b>：<b>孩子有头像</b> — 系统首次进入会自动生成一张卡通头像（可换）；照片式头像支持「相机 上传 / 自动生成 / 移除」。「+」可加新孩子。</li>
+        <li><b>多孩子切换</b>：超过一个孩子时出现横向胶囊，每个胶囊也带头像。</li>
+        <li><b>能力状态</b>：按领域（语言、社交、认知、运动……）显示百分比，下方有趋势标签（进步中 / 稳定 / 需关注）。</li>
+        <li><b>导入病例</b>：上传 PDF / Word / TXT，或直接粘贴文本。AI 会自动分析并更新孩子状态。</li>
+        <li><b>能力评估</b>：39 题，5 阶段递进，覆盖全部 210 个训练技能。</li>
+      </ul>
+      <p class="lead">每题三选：<b>还不会 / 有时 / 经常</b>；进度本地保存，可断网续答；提交后<b>自动生成训练任务</b>。</p>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="3">训练</h3>
+      <p class="lead">「今天，专注一件小事」 — 短时、高频、在成功时结束。</p>
+      <ul>
+        <li><b>当前任务</b>：按分类分组显示，可上下排序；可标记为「每日」。</li>
+        <li><b>添加新任务</b>：在管理模式下打开，可搜索训练模板、按领域浏览，也可以手写自定义。</li>
+        <li><b>图片卡</b>：127 类 / 6569 张教学图片。训练时自动匹配，也能单独浏览（左右翻、随机）。</li>
+      </ul>
+      <p class="lead">开始训练时，5 个按钮记录每一次反应：</p>
+      <div class="trial-row">
+        <div class="trial"><b>I</b><small>独立</small></div>
+        <div class="trial"><b>V</b><small>语言</small></div>
+        <div class="trial"><b>M</b><small>示范</small></div>
+        <div class="trial"><b>P</b><small>身体</small></div>
+        <div class="trial"><b>E</b><small>错误</small></div>
+      </div>
+      <p class="lead">屏幕中央是<b>独立正确率 %</b>，底部「撤销上一条 / 结束并保存」。</p>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="4">进展</h3>
+      <p class="lead">「每一点积累，都有意义」。</p>
+      <ul>
+        <li><b>三块统计卡片</b>：训练天数 / 完成训练数 / 平均独立率</li>
+        <li><b>最近训练</b>：时间线，每条记录技能名 + 独立正确率</li>
+        <li><b>AI 训练报告</b>：点「生成本周报告」后，AI 生成结构化总结，包含「进步 / 稳定 / 回退」标签 + 下一步建议；可下载 PDF。</li>
+      </ul>
+      <div class="chips">
+        <span class="chip primary">生成本周报告</span>
+        <span class="chip">下载 PDF 报告</span>
+      </div>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="5">我的</h3>
+      <ul>
+        <li>头像 + 账号名</li>
+        <li><b>进入家长陪伴</b>（一键切换到家长空间）</li>
+        <li>退出登录</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="group group-coach">
+    <h2 id="coach" class="section"><span class="icon">陪</span>家长陪伴</h2>
+    <p>底部 5 个标签：<b>陪伴 · 情绪 · 成长 · 日记 · 知识库</b></p>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="1">陪伴</h3>
+      <p class="lead">一个安全、温和、不评判的空间。</p>
+      <ul>
+        <li>顶部快捷情绪：<b>平静 / 焦虑 / 疲惫 / 悲伤</b></li>
+        <li>对话区是基于 ACT 框架的成长支持 — 写下此刻想说的话，按发送。</li>
+      </ul>
+      <div class="chips">
+        <span class="chip">平静</span>
+        <span class="chip">焦虑</span>
+        <span class="chip">疲惫</span>
+        <span class="chip">悲伤</span>
+      </div>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="2">情绪</h3>
+      <p class="lead">不只是"今天心情好不好"，而是多维记录。</p>
+      <ul>
+        <li><b>本周强度 / 已记录天数 / 常见情绪</b> 三块概览</li>
+        <li><b>情绪族</b>（6 组）：稳定 / 正向活力 / 警觉与不安 / 低落与疲惫 / 压力与愤怒 / 迷茫。可多选。</li>
+        <li><b>强度</b> 1-5（几乎没感觉 / 轻微 / 中等 / 较强 / 非常强烈）</li>
+        <li><b>触发场景</b>（12 项）</li>
+        <li><b>身体感受</b>（12 项）</li>
+        <li><b>应对方式</b>：选填</li>
+        <li>下方有<b>近 7 天强度趋势条</b>、<b>最近 14 条记录</b></li>
+      </ul>
+      <p class="lead">强度：</p>
+      <div class="intensity">
+        <span>1</span>
+        <span>2</span>
+        <span class="hot">3</span>
+        <span>4</span>
+        <span>5</span>
+      </div>
+      <p class="lead">触发场景（示例）：</p>
+      <div class="tag-cloud">
+        <span class="tag">孩子行为</span>
+        <span class="tag">家庭琐事</span>
+        <span class="tag">工作</span>
+        <span class="tag">夫妻关系</span>
+        <span class="tag">家人期待</span>
+        <span class="tag">训练过程</span>
+        <span class="tag">社交场合</span>
+        <span class="tag">睡眠不足</span>
+        <span class="tag">自我要求</span>
+        <span class="tag">经济压力</span>
+        <span class="tag">健康担忧</span>
+        <span class="tag">时间不够</span>
+      </div>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="3">成长（ACT）</h3>
+      <p class="lead">带着一个问题，按你自己的节奏走完 6 步。</p>
+      <div class="steps6">
+        <div class="step"><b>1 觉察</b><small>此刻感受</small></div>
+        <div class="step"><b>2 接纳</b><small>允许存在</small></div>
+        <div class="step"><b>3 解离</b><small>想法 ≠ 我</small></div>
+        <div class="step"><b>4 当下</b><small>回到身体</small></div>
+        <div class="step"><b>5 价值</b><small>我想成为</small></div>
+        <div class="step"><b>6 行动</b><small>2 分钟小事</small></div>
+      </div>
+      <ul>
+        <li>顶部写下"现在困扰你的是什么？"（例：晚上孩子又哭闹，我忍不住对他吼了）</li>
+        <li>按下「开始六步」，依次出现 6 个引导，每步一个具体问题。</li>
+        <li>6 步都做完，回到原问题记录：缓解了吗 / 还在 / 写一句此刻的状态。</li>
+        <li>过往问题按时间倒序保存，可再来一次六步。</li>
+      </ul>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="4">日记</h3>
+      <p class="lead">顶部两个问题作为引导：</p>
+      <ul>
+        <li>今天有没有一个你想记录下来的瞬间？</li>
+        <li>如果有朋友处在你今天的位置，你会对他说什么？</li>
+      </ul>
+      <p>写完按「保存今日反思」。历史按时间倒序显示。</p>
+    </div>
+
+    <div class="tab-card">
+      <h3 class="tab" data-num="5">知识库</h3>
+      <p class="lead">9 个分类的内容，按需点开：</p>
+      <div class="tag-cloud">
+        <span class="tag">育儿压力</span>
+        <span class="tag">自我关怀</span>
+        <span class="tag">情绪</span>
+        <span class="tag">关系</span>
+        <span class="tag">正念</span>
+        <span class="tag">方法与认知</span>
+        <span class="tag">健康与睡眠</span>
+        <span class="tag">习惯养成</span>
+        <span class="tag">工作与生活平衡</span>
+      </div>
+      <p>每篇文章带「阅读时间」标记。</p>
+    </div>
+  </div>
+
+  <h2 id="switch" class="section"><span class="icon">⇄</span>两个空间怎么切换</h2>
+  <div class="switch">
+    <b>ABA 智能助手 → 家长陪伴</b>：<br>
+    在「我的」标签里点「进入家长陪伴」。
+  </div>
+  <div class="switch">
+    <b>家长陪伴 → ABA 智能助手</b>：<br>
+    在顶部点「← ABA 智能助手」。
+  </div>
+  <p>切换不需要重新登录。</p>
+
+  <div class="footer">
+    孩子的事，交给 ABA 智能助手；<br>自己的事，交给 家长陪伴。
+    <small>两个空间用同一个账号，随时切换。如有疑问请联系 support@starfamily.app</small>
+  </div>
+
+</div>
+
+<script>
+  if (window.mermaid) {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#fdebd6',
+        primaryTextColor: '#2f2e2a',
+        primaryBorderColor: '#e8a87c',
+        lineColor: '#d27c4f',
+        secondaryColor: '#e7f1ff',
+        tertiaryColor: '#e3f1e9',
+        fontFamily: '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif'
+      },
+      flowchart: { curve: 'basis', padding: 16 },
+      securityLevel: 'loose'
+    });
+  }
+</script>
+</body>
+</html>

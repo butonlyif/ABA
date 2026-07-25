@@ -13,6 +13,16 @@ export type Child = {
   diagnosis?: string;
   goals?: string;
   is_current: boolean;
+  status_snapshot?: {
+    domains?: Record<string, number>;
+    overall_level?: number;
+    trend?: { label: string; delta: number };
+    updated_at?: string;
+    source?: string;
+  };
+  last_report_at?: string;
+  avatar_url?: string | null;
+  avatar_seed?: string | null;
 };
 
 export type Task = {
@@ -23,6 +33,35 @@ export type Task = {
   category: string;
   status: string;
   sort_order?: number;
+  is_daily?: boolean;
+};
+
+export type Report = {
+  id: string;
+  child_id: string;
+  status: string;
+  title: string;
+  summary: string;
+  content: any;
+  trend?: string | null;
+  trend_detail?: { avg_before: number; avg_after: number; delta: number } | null;
+  file_url?: string | null;
+  created_at: string;
+};
+
+export type SkillTemplate = {
+  name: string;
+  category: string;
+  description: string;
+  level: number;
+  group: string;
+  flashcard_category?: string | null;
+};
+
+export type SkillCatalog = {
+  domain: string;
+  count: number;
+  skills: SkillTemplate[];
 };
 
 export type Session = {
@@ -94,12 +133,47 @@ export const api = {
   children: () => request<Child[]>("/children"),
   createChild: (body: Partial<Child>) => request<Child>("/children", { method: "POST", body: JSON.stringify(body) }),
   setCurrentChild: (childId: string) => request<Child>(`/children/${childId}/current`, { method: "PATCH" }),
+  importRecord: async (childId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch(`${API_URL}/children/${childId}/upload-record`, {
+      method: "POST",
+      headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {},
+      body: form
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "上传失败" }));
+      throw new Error(error.detail || "上传失败");
+    }
+    return response.json() as Promise<Child>;
+  },
+  importRecordText: (childId: string, text: string) =>
+    request<Child>(`/children/${childId}/import-record`, { method: "POST", body: JSON.stringify({ text }) }),
+  uploadChildAvatar: async (childId: string, file: File) => {
+    const form = new FormData();
+    form.append("avatar", file);
+    const response = await fetch(`${API_URL}/children/${childId}/avatar`, {
+      method: "POST",
+      headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {},
+      body: form
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "头像上传失败" }));
+      throw new Error(error.detail || "头像上传失败");
+    }
+    return response.json() as Promise<Child>;
+  },
+  removeChildAvatar: (childId: string) =>
+    request<Child>(`/children/${childId}/avatar`, { method: "DELETE" }),
+  regenerateChildAvatar: (childId: string) =>
+    request<Child>(`/children/${childId}/avatar/regenerate`, { method: "POST" }),
   tasks: (childId: string) => request<Task[]>(`/tasks?child_id=${childId}`),
   deleteTask: (taskId: string) => request<void>(`/tasks/${taskId}`, { method: "DELETE" }),
-  createTask: (body: { child_id: string; name: string; description?: string; category: string }) =>
+  createTask: (body: { child_id: string; name: string; description?: string; category: string; is_daily?: boolean }) =>
     request<Task>("/tasks", { method: "POST", body: JSON.stringify(body) }),
   reorderTasks: (childId: string, order: { id: string; sort_order: number }[]) =>
     request<Task[]>("/tasks/reorder", { method: "PATCH", body: JSON.stringify({ child_id: childId, order }) }),
+  skillTemplates: () => request<SkillCatalog[]>("/training/templates"),
   questions: () => request<{ items: { id: string; domain: string; domain_name: string; level: number; text: string }[] }>("/assessments/questions"),
   submitAssessment: (childId: string, answers: Record<string, number>, idempotencyKey: string) =>
     request("/assessments", {
@@ -186,6 +260,22 @@ export const api = {
   },
   chatMessages: (product: "aba" | "coach") =>
     request<{ id: string; role: string; content: string; sources: { title: string }[] }[]>(`/chat/messages?product=${product}`),
+  clearChatMessages: (product: "aba" | "coach") =>
+    request<{ deleted: number }>(`/chat/messages?product=${product}`, { method: "DELETE" }),
+  exportChat: async (product: "aba" | "coach") => {
+    const msgs = await request<{ id: string; role: string; content: string; sources?: { title: string }[] }[]>(`/chat/messages?product=${product}`);
+    const lines = msgs.map(m => {
+      const role = m.role === "user" ? "你" : "AI";
+      let text = `[${role}]\n${m.content}`;
+      if (m.sources?.length) text += `\n[参考: ${m.sources.map(s => s.title).join(", ")}]`;
+      return text;
+    });
+    const blob = new Blob([`ABA 智能问答记录\n导出时间: ${new Date().toLocaleString("zh-CN")}\n${"─".repeat(40)}\n\n${lines.join("\n\n")}`], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `ABA问答记录_${new Date().toISOString().slice(0,10)}.txt`; a.click();
+    URL.revokeObjectURL(url);
+  },
   experts: () => request<{ items: Expert[]; selected_expert_id?: string }>("/experts"),
   selectExpert: (expertId: string) =>
     request("/experts/selection", { method: "PUT", body: JSON.stringify({ expert_id: expertId }) }),
@@ -222,8 +312,8 @@ export const api = {
   coachChat: (message: string) =>
     request<{ answer: string }>("/coach/chat", { method: "POST", body: JSON.stringify({ message }) }),
   coachOverview: () => request<{ mood_today: string | null; journal_count: number; growth_stage: string }>("/coach/overview"),
-  moods: () => request<{ id: string; mood: string; intensity: number; entry_date: string }[]>("/coach/moods"),
-  saveMood: (mood: string) => request("/coach/moods", { method: "POST", body: JSON.stringify({ mood, intensity: 3 }) }),
+  moods: () => request<{ id: string; mood: string; intensity: number; note: string | null; entry_date: string }[]>("/coach/moods"),
+  saveMood: (payload: { mood: string; intensity: number; note?: string }) => request("/coach/moods", { method: "POST", body: JSON.stringify(payload) }),
   journals: () => request<{ id: string; content: string; created_at: string }[]>("/coach/journals"),
   saveJournal: (content: string) => request("/coach/journals", { method: "POST", body: JSON.stringify({ content, prompt: "今天有没有一个瞬间，你觉得自己其实做得还不错？" }) }),
   coachArticles: () => request<{ items: { id: string; title: string; category: string; subcategory: string; level: string; read_time: string; summary: string }[] }>("/coach/articles"),

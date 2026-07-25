@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     minimax_api_key: str | None = None
     minimax_base_url: str = "https://api.minimaxi.com/v1"
-    minimax_model: str = "MiniMax-M2.7"
+    minimax_model: str = "MiniMax-M3"
     knowledge_path: str = "docs/知识库"
     upload_path: str = "uploads"
     redis_url: str | None = None

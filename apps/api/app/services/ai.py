@@ -38,9 +38,11 @@ def knowledge_documents() -> list[tuple[str, str]]:
     root = Path(settings.knowledge_path)
     if not root.is_absolute():
         candidates = [Path("/app/legacy/knowledge")]
-        parents = Path(__file__).resolve().parents
-        if len(parents) > 4:
-            candidates.append(parents[4] / settings.knowledge_path)
+        # 本地开发：从 services/ai.py 往上找项目根
+        p = Path(__file__).resolve().parent
+        for _ in range(5):
+            p = p.parent
+            candidates.append(p / settings.knowledge_path)
         root = next((c for c in candidates if c.exists()), root)
     documents: list[tuple[str, str]] = []
     if not root.exists():
@@ -84,6 +86,48 @@ def fallback_answer(product: str, message: str, sources: list[dict[str, str]]) -
         "建议先记录行为发生前的情境、具体行为和随后结果（ABC）。"
         "从一次只调整一个变量开始，并强化孩子可以替代问题行为的沟通方式。"
     )
+
+
+def analyze_medical_record(text: str) -> tuple[dict | None, str]:
+    """分析病例文本，返回 (status_snapshot, summary)。
+
+    status_snapshot 格式: {domains: {域: 0-100}, overall_level: 1-5, source: "record"}
+    """
+    import json
+    settings = get_settings()
+    if not settings.minimax_api_key:
+        return None, "未配置 AI 服务，无法分析病例。"
+    system = (
+        "你是专业的 ABA 评估分析师。根据家长提供的病例/评估报告文本，"
+        "推断孩子在以下能力域的当前水平（0-100 分）："
+        "参与技能、模仿技能、语言理解、语言表达、社交技能、情绪调节、自理技能、游戏技能、学业前技能。"
+        "同时给出总体发展等级(1=起步,5=接近典型)。只返回 JSON，格式："
+        '{"domains":{"参与技能":分数,...},"overall_level":1-5,"summary":"一句话总结"}'
+    )
+    try:
+        response = httpx.post(
+            f"{settings.minimax_base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {settings.minimax_api_key}"},
+            json={"model": settings.minimax_model, "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"病例内容：\n{text[:3000]}"},
+            ], "temperature": 0.2},
+            timeout=40,
+        )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.S).strip()
+        # 提取 JSON
+        match = re.search(r"\{.*\}", content, re.S)
+        if not match:
+            return None, "AI 返回格式异常，无法解析。"
+        data = json.loads(match.group())
+        data["source"] = "record"
+        data["updated_at"] = ""
+        summary = data.pop("summary", "病例分析完成")
+        return data, summary
+    except Exception as exc:
+        return None, f"病例分析失败：{type(exc).__name__}"
 
 
 def generate(product: str, message: str, history: list[dict]) -> tuple[str, list[dict[str, str]], AiCall]:
