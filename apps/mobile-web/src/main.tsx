@@ -2,7 +2,7 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Baby, BarChart3, BookOpen, Camera, Check, ChevronLeft, ChevronRight, CircleUserRound, Download, Dumbbell, HeartHandshake, Home, Inbox, MessageCircleHeart, PenLine, Play, Plus, RefreshCw, Send, ShieldCheck, Shuffle, Smile, Sparkles, Sprout, Target, UserRoundCheck, WifiOff } from "lucide-react";
-import { api, Child, ExpertClient, ExpertProfile, Report, Session, SkillTemplate, Task } from "./api";
+import { api, Child, ExpertClient, ExpertProfile, Report, Session, SkillTemplate, Task, TrialResult } from "./api";
 import "./styles.css";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 20_000 } } });
@@ -11,11 +11,23 @@ type ProductMode = "aba" | "coach";
 
 // ACT 六步法：以一个问题为单位发起的 session
 type ActStepKey = "awareness" | "acceptance" | "defusion" | "present" | "values" | "action";
+type ActMode = "quick" | "full";
+type ActActionStatus = "planned" | "tried" | "completed" | "blocked";
 type ActSession = {
   id: string;
   problem: string;
+  mode: ActMode;
   steps: Record<ActStepKey, { reflection: string; completedAt: string | null }>;
   resolution: { solved: boolean | null; note: string; updatedAt: string | null };
+  actionPlan: {
+    value: string;
+    action: string;
+    fallback: string;
+    when: string;
+    status: ActActionStatus;
+    obstacle: string;
+    updatedAt: string | null;
+  } | null;
   status: "in_progress" | "completed";
   createdAt: string;
   updatedAt: string;
@@ -30,16 +42,18 @@ const ACT_STEPS: { key: ActStepKey; name: string; prompt: string; placeholder: s
   { key: "action", name: "行动", prompt: "今天可以做的一件 2 分钟小事是什么？", placeholder: "具体到可以马上开始，做完回到原问题。" }
 ];
 
-function newActSession(problem: string): ActSession {
+function newActSession(problem: string, mode: ActMode = "full"): ActSession {
   const now = new Date().toISOString();
   return {
     id: (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`),
     problem,
+    mode,
     steps: ACT_STEPS.reduce((acc, step) => {
       acc[step.key] = { reflection: "", completedAt: null };
       return acc;
     }, {} as ActSession["steps"]),
     resolution: { solved: null, note: "", updatedAt: null },
+    actionPlan: null,
     status: "in_progress",
     createdAt: now,
     updatedAt: now
@@ -55,12 +69,12 @@ type MoodDetail = {
   coping: string;
 };
 const MOOD_FAMILIES: { group: string; items: { key: string; label: string }[] }[] = [
-  { group: "稳定", items: [{ key: "calm", label: "平静" }, { key: "relaxed", label: "放松" }, { key: "grateful", label: "感激" }, { key: "warm", label: "温暖" }] },
-  { group: "正向活力", items: [{ key: "joy", label: "愉悦" }, { key: "excited", label: "兴奋" }, { key: "hopeful", label: "有希望" }, { key: "proud", label: "自豪" }] },
-  { group: "警觉与不安", items: [{ key: "anxious", label: "焦虑" }, { key: "tense", label: "紧绷" }, { key: "restless", label: "烦躁" }, { key: "overwhelmed", label: "不堪重负" }] },
-  { group: "低落与疲惫", items: [{ key: "sad", label: "低落" }, { key: "exhausted", label: "疲惫" }, { key: "empty", label: "空虚" }, { key: "lonely", label: "孤独" }] },
-  { group: "压力与愤怒", items: [{ key: "angry", label: "愤怒" }, { key: "frustrated", label: "挫败" }, { key: "ashamed", label: "羞耻" }, { key: "guilty", label: "内疚" }] },
-  { group: "迷茫", items: [{ key: "confused", label: "困惑" }, { key: "doubtful", label: "怀疑" }, { key: "numb", label: "麻木" }, { key: "helpless", label: "无助" }] }
+  { group: "稳定", items: [{ key: "calm", label: "平静" }, { key: "relaxed", label: "放松" }, { key: "secure", label: "安心" }, { key: "content", label: "满足" }, { key: "grateful", label: "感激" }, { key: "warm", label: "温暖" }] },
+  { group: "正向活力", items: [{ key: "joy", label: "愉悦" }, { key: "light", label: "轻松" }, { key: "excited", label: "兴奋" }, { key: "hopeful", label: "有希望" }, { key: "supported", label: "被支持" }, { key: "proud", label: "自豪" }] },
+  { group: "警觉与不安", items: [{ key: "anxious", label: "焦虑" }, { key: "worried", label: "担心" }, { key: "afraid", label: "害怕" }, { key: "tense", label: "紧绷" }, { key: "restless", label: "烦躁" }, { key: "overwhelmed", label: "不堪重负" }] },
+  { group: "低落与疲惫", items: [{ key: "sad", label: "低落" }, { key: "aggrieved", label: "委屈" }, { key: "lost", label: "失落" }, { key: "exhausted", label: "疲惫" }, { key: "empty", label: "空虚" }, { key: "lonely", label: "孤独" }] },
+  { group: "压力与愤怒", items: [{ key: "angry", label: "愤怒" }, { key: "frustrated", label: "挫败" }, { key: "repressed", label: "压抑" }, { key: "resigned", label: "无奈" }, { key: "ashamed", label: "羞耻" }, { key: "guilty", label: "内疚" }] },
+  { group: "迷茫", items: [{ key: "confused", label: "困惑" }, { key: "uncertain", label: "不确定" }, { key: "out_of_control", label: "失控" }, { key: "doubtful", label: "怀疑" }, { key: "numb", label: "麻木" }, { key: "helpless", label: "无助" }] }
 ];
 const TRIGGER_OPTIONS = ["孩子行为", "家庭琐事", "工作", "夫妻关系", "家人期待", "训练过程", "社交场合", "睡眠不足", "自我要求", "经济压力", "健康担忧", "时间不够"];
 const BODY_OPTIONS = ["肩膀紧", "心跳快", "胸口闷", "胃部不适", "手心出汗", "手抖", "呼吸急促", "呼吸平稳", "肌肉放松", "全身乏力", "头痛", "面部发烫"];
@@ -72,6 +86,7 @@ function flattenMoods() {
   return map;
 }
 const MOOD_LABEL_MAP = flattenMoods();
+const moodLabel = (key: string) => key.startsWith("custom:") ? key.slice(7) : MOOD_LABEL_MAP[key] || key;
 
 function parseMoodDetail(note: string | null | undefined): MoodDetail | null {
   if (!note) return null;
@@ -87,14 +102,33 @@ function Auth({ mode, setMode, onDone }: { mode: ProductMode; setMode: (mode: Pr
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
+    const cleanUsername = username.trim();
+    if (cleanUsername.length < 2) {
+      setError("用户名至少需要 2 个字符");
+      return;
+    }
+    if (signup && password.length < 8) {
+      setError("密码至少需要 8 位");
+      return;
+    }
+    if (!signup && password.length < 4) {
+      setError("请输入完整密码");
+      return;
+    }
+    setSubmitting(true);
     try {
-      const tokens = await (signup ? api.register(username, password) : api.login(username, password));
+      const tokens = await (signup ? api.register(cleanUsername, password) : api.login(cleanUsername, password));
       api.tokenStore.set(tokens);
       onDone();
-    } catch (err) { setError((err as Error).message); }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
   };
   return <main className="auth">
     <div className="brand-mark"><Sparkles size={30}/></div>
@@ -121,9 +155,10 @@ function Auth({ mode, setMode, onDone }: { mode: ProductMode; setMode: (mode: Pr
       </div>
       <label>用户名<input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" /></label>
       <label>密码<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={signup ? "new-password" : "current-password"} /></label>
+      {signup && <small className="muted">用户名至少 2 个字符，密码至少 8 位。</small>}
       {error && <p className="error">{error}</p>}
-      <button className={`primary ${mode === "coach" ? "coach-primary" : ""}`} disabled={username.length < 2 || (signup ? password.length < 8 : password.length < 4)}>
-        {signup ? "创建家庭账户" : mode === "coach" ? "进入家长陪伴" : "开始和皮特对话"}
+      <button className={`primary ${mode === "coach" ? "coach-primary" : ""}`} disabled={submitting}>
+        {submitting ? "正在处理…" : signup ? "创建家庭账户" : mode === "coach" ? "进入家长陪伴" : "开始和皮特对话"}
       </button>
       <small>注册即表示同意儿童数据保护与隐私说明</small>
     </form>
@@ -155,15 +190,24 @@ function EmptyChild({ done }: { done: () => void }) {
 }
 
 function ChildAvatar({ child, size = 80, badge = false }: { child: Child; size?: number; badge?: boolean }) {
-  const url = child.avatar_url ? api.assetUrl(child.avatar_url) : "";
-  // 加上 cache-busting（每次 avatar_url 变化或 uploaded 时间戳变化时重置）
-  const bust = React.useMemo(() => `${Date.now().toString(36)}`, [child.avatar_url]);
-  const src = url ? `${url}${url.includes("?") ? "&" : "?"}v=${bust}` : "";
+  const [src, setSrc] = useState("");
   const [errored, setErrored] = useState(false);
-  // avatar_url 缺失（移除后）时直接走卡通
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    setSrc("");
+    setErrored(false);
+    api.childAvatar(child.id).then(url => {
+      objectUrl = url;
+      if (active) setSrc(url);
+      else URL.revokeObjectURL(url);
+    }).catch(() => active && setErrored(true));
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [child.id, child.avatar_url, child.avatar_seed]);
   const showImage = Boolean(src) && !errored;
-  // 没有 src 或加载失败时显示 fallback（首字母），加载中或加载完成均显示 <img>，
-  // 由浏览器原生加载（opacity 始终 1，避免 transition 卡在中间态看不见图）
   return <div className="child-avatar" style={{ width: size, height: size }}>
     {showImage && <img src={src} alt={child.name} onError={() => setErrored(true)} />}
     {!showImage && <span className="child-avatar-fallback">{child.name.slice(0, 1)}</span>}
@@ -228,6 +272,10 @@ function HomePage({ child, go }: { child: Child; go: (tab: Tab) => void }) {
   const { data: expertData } = useQuery({ queryKey: ["experts"], queryFn: api.experts });
   const { data: expertThread } = useQuery({ queryKey: ["expert-conversation"], queryFn: api.expertConversation, enabled: helpMode === "expert" });
   const { data: notificationData } = useQuery({ queryKey: ["notifications"], queryFn: api.notifications, refetchInterval: 10_000 });
+  const { data: progressData } = useQuery({ queryKey: ["progress", child.id], queryFn: () => api.progress(child.id) });
+  const daysSinceTraining = progressData?.last_training_at
+    ? Math.floor((Date.now() - new Date(progressData.last_training_at).getTime()) / 86400000)
+    : null;
   useEffect(() => {
     if (helpMode === "expert" && expertThread) queryClient.invalidateQueries({ queryKey: ["notifications"] });
   }, [helpMode, expertThread]);
@@ -252,6 +300,9 @@ function HomePage({ child, go }: { child: Child; go: (tab: Tab) => void }) {
       </div>
       {history.length > 0 && <div style={{display:"flex",gap:10,alignItems:"center"}}><button className="text-button" onClick={() => api.exportChat("aba")}><Download size={14}/> 导出</button><button className="text-button clear-chat-btn" onClick={() => clearChat.mutate()} disabled={clearChat.isPending}>清空</button></div>}
     </header>
+    {(daysSinceTraining === null || daysSinceTraining >= 2) && <button className="training-reminder" onClick={() => go("training")}>
+      <Target/><span><strong>{daysSinceTraining === null ? "可以开始第一次家庭训练" : `已经 ${daysSinceTraining} 天没有完整训练`}</strong><small>选择一个当前任务，完成5–10个回合即可计入趋势</small></span><ChevronRight/>
+    </button>}
 
     {/* 问答主区域 — 占据大部分空间 */}
     <section className="home-chat">
@@ -462,6 +513,14 @@ function ChildPage({ child }: { child: Child }) {
 }
 
 function TrainingPage({ child }: { child: Child }) {
+  const minimumTrials = 5;
+  const trialOptions: { result: TrialResult; label: string }[] = [
+    { result: "I", label: "独立" },
+    { result: "V", label: "语言提示" },
+    { result: "M", label: "示范" },
+    { result: "P", label: "身体辅助" },
+    { result: "E", label: "未完成" },
+  ];
   const [view, setView] = useState<"tasks" | "flashcards">("tasks");
   const [manageMode, setManageMode] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -480,7 +539,7 @@ function TrainingPage({ child }: { child: Child }) {
   const { data: activeSession } = useQuery({ queryKey: ["active-session", child.id], queryFn: () => api.activeSession(child.id) });
   useEffect(() => { if (activeSession) setSession(activeSession); }, [activeSession]);
   const start = useMutation({ mutationFn: (task: Task) => api.createSession(child.id, task), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["active-session", child.id] }); } });
-  const trial = useMutation({ mutationFn: (result: string) => api.addTrial(session!.id, result), onSuccess: setSession });
+  const trial = useMutation({ mutationFn: (result: TrialResult) => api.addTrial(session!.id, result), onSuccess: setSession });
   const undo = useMutation({ mutationFn: () => api.undoTrial(session!.id), onSuccess: setSession });
   const finish = useMutation({ mutationFn: () => api.finishSession(session!.id), onSuccess: data => { setSession(data); queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }); queryClient.invalidateQueries({ queryKey: ["active-session", child.id] }); } });
   const delTask = useMutation({ mutationFn: (taskId: string) => api.deleteTask(taskId), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tasks", child.id] }) });
@@ -510,41 +569,44 @@ function TrainingPage({ child }: { child: Child }) {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "zh"));
   }, [activeTasks]);
 
-  // 排序操作
-  const moveTask = (taskId: string, direction: -1 | 1) => {
-    const idx = realTasks.findIndex(t => t.id === taskId);
-    if ((direction === -1 && idx === 0) || (direction === 1 && idx === realTasks.length - 1)) return;
-    const newOrder = [...realTasks];
-    [newOrder[idx], newOrder[idx + direction]] = [newOrder[idx + direction], newOrder[idx]];
-    api.reorderTasks(child.id, newOrder.map((t, i) => ({ id: t.id, sort_order: i }))).then(() =>
-      queryClient.invalidateQueries({ queryKey: ["tasks", child.id] })
-    );
-  };
-
   if (session && session.status === "active") return <section className="training-live">
     <button className="back-link" onClick={() => setSession(null)}><ChevronLeft/> 返回任务列表</button>
     <p className="eyebrow">正在训练</p><h1>{session.skill_name}</h1>
     <div className="task-detail-desc">{(realTasks.find(t => t.name === session.skill_name) as Task)?.description || "每次呈现刺激后，记录孩子最少辅助下的反应。"}</div>
     <TrainingFlashcard skillName={session.skill_name}/>
     <div className="score-ring"><strong>{session.percentage}%</strong><small>独立正确</small></div>
-    <div className="trial-log">{session.trials.map((value, index) => <span className={`trial ${value}`} key={index}>{value}</span>)}</div>
+    <div className={`training-dose ${session.trials.length >= minimumTrials ? "ready" : ""}`}>
+      <strong>{Math.min(session.trials.length, minimumTrials)} / {minimumTrials}</strong>
+      <span>{session.trials.length >= minimumTrials ? "已达到完整训练标准，可以结束或继续到10个回合" : `再记录 ${minimumTrials - session.trials.length} 个回合即可计入趋势`}</span>
+    </div>
+    <div className="trial-log" aria-label="本次训练记录">{session.trials.map((value, index) => {
+      const option = trialOptions.find(item => item.result === value);
+      return <span className={`trial ${value}`} title={option?.label} aria-label={`第${index + 1}次：${option?.label || value}`} key={index}>{value}</span>;
+    })}</div>
     <div className="trial-buttons">
-      <button disabled={trial.isPending} onClick={() => trial.mutate("I")}>I<small>独立</small></button>
-      <button disabled={trial.isPending} onClick={() => trial.mutate("V")}>V<small>语言</small></button>
-      <button disabled={trial.isPending} onClick={() => trial.mutate("M")}>M<small>示范</small></button>
-      <button disabled={trial.isPending} onClick={() => trial.mutate("P")}>P<small>身体</small></button>
-      <button disabled={trial.isPending} onClick={() => trial.mutate("E")}>E<small>错误</small></button>
+      {trialOptions.map(option =>
+        <button className={`result-${option.result}`} disabled={trial.isPending} onClick={() => trial.mutate(option.result)} aria-label={option.label} key={option.result}>
+          {option.result}<small>{option.label}</small>
+        </button>
+      )}
     </div>
     <button className="undo-trial" disabled={!session.trials.length || undo.isPending} onClick={() => undo.mutate()}>撤销上一条记录</button>
-    <button className="primary" disabled={!session.trials.length} onClick={() => finish.mutate()}>结束并保存训练</button>
+    <button className="primary" disabled={session.trials.length < minimumTrials || finish.isPending} onClick={() => finish.mutate()}>
+      {session.trials.length < minimumTrials ? `至少完成 ${minimumTrials} 个回合` : "结束并保存训练"}
+    </button>
   </section>;
   return <>
     <div className="page-heading"><p className="eyebrow">训练中心</p><h1>今天，专注一件小事</h1><p>短时、高频、在成功时结束。</p></div>
     <div className="training-tabs">
       <button className={view === "tasks" ? "active" : ""} onClick={() => setView("tasks")}>当前任务 ({activeTasks.length})</button>
       <button className={view === "flashcards" ? "active" : ""} onClick={() => setView("flashcards")}>图片卡</button>
-      <button className={manageMode ? "active manage-btn" : "manage-btn"} onClick={() => setManageMode(!manageMode)} title="管理任务"><PenLine size={14}/></button>
     </div>
+    {view === "tasks" && (activeTasks.length > 0 || completedTasks.length > 0) && <div className="task-list-toolbar">
+      <span>{manageMode ? "编辑任务清单" : "任务清单"}</span>
+      <button className={manageMode ? "task-edit-button active" : "task-edit-button"} onClick={() => setManageMode(!manageMode)} aria-pressed={manageMode}>
+        {manageMode ? <><Check size={14}/> 完成</> : <><PenLine size={14}/> 编辑任务</>}
+      </button>
+    </div>}
     {view === "flashcards" ? <FlashcardCenter/> : isLoading ? <p>正在加载任务…</p> : activeTasks.length === 0 && completedTasks.length === 0 ?
       <section className="empty-state"><Target/><h2>还没有训练任务</h2><p>先去"孩子"页完成能力评估。</p></section> :
       <section className="task-list">
@@ -605,15 +667,10 @@ function TrainingPage({ child }: { child: Child }) {
             <h3 className="task-group-title" onClick={() => setCollapsedGroups(s => ({ ...s, [category]: !s[category] }))}>
               {category}<span>{items.length} 项 {collapsed ? "▸" : "▾"}</span>
             </h3>
-            {!collapsed && items.map((task, i) => {
+            {!collapsed && items.map(task => {
             const isExpanded = expandedId === task.id;
-            const globalIdx = realTasks.indexOf(task);
             return <article key={task.id} className={`task-card compact expandable ${task.status}${isExpanded?" open":""}`}>
               <div className="task-row" onClick={() => setExpandedId(isExpanded ? null : task.id)}>
-                {manageMode && <div className="task-sort-btns">
-                  <button disabled={globalIdx===0} onClick={(e)=>{e.stopPropagation();moveTask(task.id,-1)}} title="上移">▲</button>
-                  <button disabled={globalIdx>=realTasks.length-1} onClick={(e)=>{e.stopPropagation();moveTask(task.id,1)}} title="下移">▼</button>
-                </div>}
                 <span className="task-name">{task.name}{task.is_daily && <em className="daily-tag">每日</em>}</span>
                 {!manageMode && <button onClick={(e)=>{e.stopPropagation();start.mutate(task)}} aria-label={`开始${task.name}`}><Play size={16}/></button>}
                 {manageMode && <button className="task-del-btn" onClick={(e)=>{e.stopPropagation();delTask.mutate(task.id)}} title="删除">×</button>}
@@ -715,107 +772,234 @@ function ReportTrendBadge({ trend, delta }: { trend?: string | null; delta?: num
   return <span className={`report-status trend-badge ${cls}`}>{label}{typeof delta === "number" && delta !== 0 ? ` ${delta > 0 ? "+" : ""}${delta}%` : ""}</span>;
 }
 
-function ProgressPage({ child }: { child: Child }) {
-  const { data, refetch } = useQuery({ queryKey: ["progress", child.id], queryFn: () => api.progress(child.id) });
+function ReportsCenter({ child }: { child: Child }) {
   const { data: reports = [] } = useQuery({ queryKey: ["reports", child.id], queryFn: () => api.reports(child.id), refetchInterval: query => {
     const rows = query.state.data as any[] | undefined;
     return rows?.some(item => item.status === "pending") ? 1500 : false;
   }});
   const generate = useMutation({ mutationFn: () => api.generateReport(child.id), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reports", child.id] }) });
+  return <section className="card report-card">
+    <div><p className="eyebrow">训练报告</p><h2>阶段总结与建议</h2><p>需要时生成，不占用日常进度页面。</p></div>
+    <button className="secondary" onClick={() => generate.mutate()} disabled={generate.isPending}>生成本周报告</button>
+    {reports.map((report: Report) => <div className={`report-item ${report.status}`} key={report.id}>
+      <div className="report-head"><strong>{report.title}</strong>
+        {report.status === "pending" ? <span className="report-status">生成中…</span>
+          : report.status === "failed" ? <span className="report-status">失败</span>
+          : <ReportTrendBadge trend={report.trend} delta={report.trend_detail?.delta} />}
+      </div>
+      <p>{report.summary}</p>
+      {report.content?.next_steps?.length ? <ul>{report.content.next_steps.map((step: string) => <li key={step}>{step}</li>)}</ul> : null}
+      {report.file_url ? <button className="text-button" onClick={() => api.downloadReport(report.id)}>下载 PDF 报告</button> : null}
+    </div>)}
+  </section>;
+}
+
+function ProgressPage({ child }: { child: Child }) {
+  const { data, refetch } = useQuery({ queryKey: ["progress", child.id], queryFn: () => api.progress(child.id) });
+  const trendLabel = { progress: "进步", stable: "稳定", regression: "可能回退", insufficient: "数据不足" } as const;
+  const chartPoints = data?.weekly.map((week, index) => ({
+    ...week,
+    x: 24 + index * 92,
+    y: week.independent_rate === null ? null : 128 - week.independent_rate,
+  })) || [];
+  const linePoints = chartPoints.filter(point => point.y !== null).map(point => `${point.x},${point.y}`).join(" ");
+  const populatedWeeks = data?.weekly.filter(week => week.trials > 0) || [];
+  const supportInsight = (() => {
+    if (populatedWeeks.length < 2) {
+      return { status: "insufficient", title: "再完成一周即可比较提示变化", message: "当前先展示已记录的五级结果分布，不对单周数据下趋势结论。" };
+    }
+    const previous = populatedWeeks[populatedWeeks.length - 2];
+    const latest = populatedWeeks[populatedWeeks.length - 1];
+    const rate = (week: typeof latest, results: ("I" | "V" | "M" | "P" | "E")[]) =>
+      Math.round(results.reduce((sum, result) => sum + week.results[result], 0) / week.trials * 100);
+    const independentDelta = rate(latest, ["I"]) - rate(previous, ["I"]);
+    const highSupportDelta = rate(latest, ["M", "P"]) - rate(previous, ["M", "P"]);
+    const incompleteDelta = rate(latest, ["E"]) - rate(previous, ["E"]);
+    let status = "mixed";
+    let title = "提示结构发生变化";
+    if (independentDelta >= 5 && highSupportDelta <= -5) {
+      status = "progress";
+      title = "提示依赖正在下降";
+    } else if (independentDelta <= -5 && highSupportDelta >= 5) {
+      status = "regression";
+      title = "提示依赖可能上升";
+    } else if (Math.abs(independentDelta) < 5 && Math.abs(highSupportDelta) < 5) {
+      status = "stable";
+      title = "提示结构基本稳定";
+    }
+    const signed = (value: number) => `${value > 0 ? "+" : ""}${value}`;
+    return {
+      status,
+      title,
+      message: `独立完成 ${signed(independentDelta)}，示范/身体辅助 ${signed(highSupportDelta)}，未完成 ${signed(incompleteDelta)} 个百分点（${latest.trials} vs ${previous.trials} 个回合）。`,
+    };
+  })();
   return <>
     <div className="page-heading"><p className="eyebrow">成长进展</p><h1>每一点积累，都有意义</h1></div>
-    <div className="stats">
-      <article><strong>{data?.training_days || 0}</strong><span>训练天数</span></article>
-      <article><strong>{data?.completed_sessions || 0}</strong><span>完成训练</span></article>
-      <article><strong>{data?.average_percentage || 0}%</strong><span>平均独立率</span></article>
-    </div>
-    <section className="card"><div className="section-title"><span>最近训练</span><button className="text-button" onClick={() => refetch()}>刷新</button></div>
-      {!data?.timeline?.length ? <p className="muted">完成第一次训练后，这里会出现趋势。</p> : data.timeline.map((item: Session) =>
-        <div className="timeline" key={item.id}><span><Check/></span><div><strong>{item.skill_name}</strong><small>{item.percentage}% 独立正确</small></div></div>)}
+    <section className={`progress-conclusion ${data?.trend.status || "insufficient"}`}>
+      <div><span>{data ? trendLabel[data.trend.status] : "正在分析"}</span><h2>{data?.trend.title || "正在读取训练记录"}</h2></div>
+      <p>{data?.trend.message || "请稍候。"}</p>
+      {data?.trend.delta !== null && data?.trend.delta !== undefined && <strong>{data.trend.delta > 0 ? "+" : ""}{data.trend.delta}<small>个百分点</small></strong>}
     </section>
-    <section className="card report-card"><div><p className="eyebrow">AI 训练报告</p><h2>把数据变成下一步建议</h2><p>基于真实训练记录生成结构化总结。</p></div>
-      <button className="secondary" onClick={() => generate.mutate()} disabled={generate.isPending}>生成本周报告</button>
-      {reports.map((report: Report) => <div className={`report-item ${report.status}`} key={report.id}>
-        <div className="report-head"><strong>{report.title}</strong>
-          {report.status === "pending" ? <span className="report-status">生成中…</span>
-            : report.status === "failed" ? <span className="report-status">失败</span>
-            : <ReportTrendBadge trend={report.trend} delta={report.trend_detail?.delta} />}
-        </div>
-        <p>{report.summary}</p>
-        {report.content?.next_steps?.length ? <ul>{report.content.next_steps.map((step: string) => <li key={step}>{step}</li>)}</ul> : null}
-        {report.file_url ? <button className="text-button" onClick={() => api.downloadReport(report.id)}>下载 PDF 报告</button> : null}
-      </div>)}
+    <section className="progress-rule">
+      <strong>怎样形成有效趋势？</strong>
+      <span>同一技能每次记录至少5个回合，建议完成5–10个；累计6次完整训练后，开始比较前后趋势。</span>
+    </section>
+    <div className="stats progress-stats">
+      <article><strong>{data?.training_days || 0}</strong><span>训练天数</span></article>
+      <article><strong>{data?.completed_sessions || 0}</strong><span>完整训练</span></article>
+      <article><strong>{data?.average_percentage || 0}%</strong><span>总体独立率</span></article>
+    </div>
+    <section className="card progress-chart-card">
+      <div className="section-title"><span>近4周独立完成率</span><button className="text-button" onClick={() => refetch()}>刷新</button></div>
+      {!chartPoints.some(point => point.y !== null) ? <div className="progress-empty"><BarChart3/><p>完成训练后，这里会形成每周趋势。</p></div> :
+        <svg className="progress-line-chart" viewBox="0 0 324 168" role="img" aria-label="近4周独立完成率趋势">
+          {[28, 78, 128].map((y, index) => <g key={y}><line x1="24" y1={y} x2="300" y2={y}/><text x="2" y={y + 4}>{100 - index * 50}</text></g>)}
+          {linePoints && <polyline points={linePoints}/>}
+          {chartPoints.map(point => <g className={point.y === null ? "empty" : ""} key={point.week_start}>
+            {point.y !== null && <><circle cx={point.x} cy={point.y} r="5"/><text className="value" x={point.x} y={point.y - 10}>{point.independent_rate}%</text></>}
+            <text className="label" x={point.x} y="153">{point.label}</text>
+            <text className="sessions" x={point.x} y="166">{point.sessions ? `${point.sessions}次` : "无训练"}</text>
+          </g>)}
+        </svg>}
+    </section>
+    <section className="card support-chart-card">
+      <div className="section-title"><span>提示结构变化</span><small>最近4周</small></div>
+      <div className="support-legend">
+        {[["I", "独立"], ["V", "语言"], ["M", "示范"], ["P", "身体"], ["E", "未完成"]].map(([result, label]) =>
+          <span className={`result-${result}`} key={result}><i/>{label}</span>)}
+      </div>
+      <div className="support-bars">{data?.weekly.map(week => <div className="support-week" key={week.week_start}>
+        <span>{week.label}</span>
+        {week.trials ? <div className="support-stack" aria-label={`${week.label}，共${week.trials}个回合`}>
+          {(["I", "V", "M", "P", "E"] as const).map(result => {
+            const width = week.results[result] / week.trials * 100;
+            return width > 0 ? <i className={`result-${result}`} style={{ width: `${width}%` }} title={`${result} ${Math.round(width)}%`} key={result}/> : null;
+          })}
+        </div> : <div className="support-stack empty"><em>无训练</em></div>}
+        <small>{week.trials ? `${week.trials}回合` : "—"}</small>
+      </div>)}</div>
+      <div className={`support-insight ${supportInsight.status}`}>
+        <strong>{supportInsight.title}</strong><span>{supportInsight.message}</span>
+      </div>
+    </section>
+    <section className="card skill-change-card">
+      <div className="section-title"><span>技能变化</span><small>近28天 vs 前28天</small></div>
+      {!data?.skills.length ? <p className="muted">有更多训练后，会按技能显示进步或回退。</p> :
+        <div className="skill-change-list">{data.skills.map(skill => <div className="skill-change-row" key={skill.skill_name}>
+          <div><strong>{skill.skill_name}</strong><small>近28天 {skill.current_sessions} 次训练</small></div>
+          <span className="skill-rate">{skill.current_rate === null ? "—" : `${skill.current_rate}%`}</span>
+          <span className={`skill-status ${skill.status}`}>
+            {skill.status === "insufficient" ? "数据不足" : `${trendLabel[skill.status]}${skill.delta !== null && skill.delta !== 0 ? ` ${skill.delta > 0 ? "+" : ""}${skill.delta}` : ""}`}
+          </span>
+        </div>)}</div>}
     </section>
   </>;
 }
 
-function ActStepForm({ step, onSave, onToJournal }: { step: { key: ActStepKey; name: string; prompt: string; placeholder: string }; session: ActSession; onSave: (reflection: string) => void; onToJournal: () => void }) {
+function MePage({ username, child, switchToCoach, logout }: { username: string; child: Child; switchToCoach: () => void; logout: () => void }) {
+  return <section className="me-page">
+    <div className="me-profile"><div className="avatar large">{username.slice(0, 1)}</div><div><p className="eyebrow">我的家庭空间</p><h1>{username}</h1><span>{child.name}的家长</span></div></div>
+    <section className="me-guide">
+      <div><Target/><span><strong>每次训练</strong><small>同一技能5–10个回合</small></span></div>
+      <div><BarChart3/><span><strong>趋势判断</strong><small>累计6次完整训练</small></span></div>
+    </section>
+    <button className="card product-switch-card" onClick={switchToCoach}><MessageCircleHeart/><span>进入家长陪伴<small>情绪支持、成长练习与反思日记</small></span><ChevronRight/></button>
+    <ReportsCenter child={child}/>
+    <button className="danger" onClick={logout}>退出登录</button>
+  </section>;
+}
+
+const ACT_BLOCKERS = [
+  ["没时间", "把这一步缩小为一句话，先保留方向。"],
+  ["情绪太强", "先停30秒，感受双脚与呼吸，不要求自己马上平静。"],
+  ["对方不在", "先写下最想表达的一句话，作为准备动作。"],
+  ["不知道怎么做", "先选择一个自己能控制、两分钟内能开始的动作。"],
+  ["当前不安全", "先停止练习，离开危险情境并联系可信任的人或现实支持。"],
+] as const;
+
+function ActStepForm({ step, index, total, onSave, onBlocked, onToJournal }: { step: { key: ActStepKey; name: string; prompt: string; placeholder: string }; index: number; total: number; onSave: (reflection: string) => void; onBlocked: (reason: string, fallback: string) => void; onToJournal: () => void }) {
   const [text, setText] = useState("");
+  const [showBlockers, setShowBlockers] = useState(false);
   return <div className="act-step-form">
-    <p className="eyebrow">第 {ACT_STEPS.findIndex(s => s.key === step.key) + 1} 步 / 共 {ACT_STEPS.length} 步</p>
+    <p className="eyebrow">第 {index + 1} 步 / 共 {total} 步</p>
     <h3>{step.name}</h3>
     <p className="act-prompt">{step.prompt}</p>
     <textarea value={text} onChange={e => setText(e.target.value)} placeholder={step.placeholder} rows={4}/>
     <div className="growth-detail-actions">
       <button className="primary" disabled={!text.trim()} onClick={() => onSave(text.trim())}>完成本步</button>
+      <button className="text-button" onClick={() => setShowBlockers(!showBlockers)}>现在做不到</button>
       <button className="text-button" onClick={onToJournal}>写进日记</button>
     </div>
+    {showBlockers && <div className="act-blockers">
+      <strong>是什么让这一步暂时做不到？</strong>
+      {ACT_BLOCKERS.map(([reason, fallback]) => <button onClick={() => onBlocked(reason, fallback)} key={reason}><span>{reason}</span><small>{fallback}</small></button>)}
+    </div>}
   </div>;
 }
 
-function ActResolutionForm({ onSave, onRestart, onToJournal }: { session: ActSession; onSave: (solved: boolean, note: string) => void; onRestart: () => void; onToJournal: () => void }) {
-  const [solved, setSolved] = useState<boolean | null>(null);
-  const [note, setNote] = useState("");
-  return <div className="act-resolution-form">
-    <h3 className="coach-section-head">回到原问题</h3>
-    <p>六步都走完了。回到刚才那个问题——现在它怎么样了？</p>
-    <div className="act-solved-picker">
-      <button className={solved === true ? "selected" : ""} onClick={() => setSolved(true)}>缓解了</button>
-      <button className={solved === false ? "selected" : ""} onClick={() => setSolved(false)}>还在</button>
-    </div>
-    <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="写一句此刻的状态，或者接下来想做的事。" rows={3}/>
-    <div className="growth-detail-actions">
-      <button className="primary" disabled={solved === null} onClick={() => onSave(solved!, note.trim())}>保存这次记录</button>
-      <button className="text-button" onClick={onRestart}>再来一次六步</button>
-      <button className="text-button" onClick={onToJournal}>写进日记</button>
-    </div>
+function ActActionPlanForm({ session, onSave }: { session: ActSession; onSave: (plan: NonNullable<ActSession["actionPlan"]>) => void }) {
+  const [value, setValue] = useState(session.steps.values.reflection);
+  const [action, setAction] = useState(session.steps.action.reflection);
+  const [fallback, setFallback] = useState("");
+  const [when, setWhen] = useState("");
+  return <div className="act-action-form">
+    <h3 className="coach-section-head">形成最小行动卡</h3>
+    <p className="muted small">问题不需要先消失。选择一个在现实条件下仍能开始的动作。</p>
+    <label>我想靠近的方向<input value={value} onChange={e => setValue(e.target.value)} placeholder="例如：耐心、稳定、诚实"/></label>
+    <label>两分钟内能开始的行动<textarea value={action} onChange={e => setAction(e.target.value)} placeholder="例如：孩子哭闹时，先停10秒再回应" rows={2}/></label>
+    <label>如果条件不满足，就缩小为<textarea value={fallback} onChange={e => setFallback(e.target.value)} placeholder="例如：只把声音降低，不要求自己马上平静" rows={2}/></label>
+    <label>准备在什么时候尝试<input value={when} onChange={e => setWhen(e.target.value)} placeholder="例如：今晚睡前 / 下次出现哭闹时"/></label>
+    <button className="primary" disabled={!value.trim() || !action.trim() || !fallback.trim()} onClick={() => onSave({
+      value: value.trim(), action: action.trim(), fallback: fallback.trim(), when: when.trim(),
+      status: "planned", obstacle: "", updatedAt: new Date().toISOString(),
+    })}>保存行动卡</button>
   </div>;
 }
 
-function ActResolutionView({ session, onRestart }: { session: ActSession; onRestart: () => void }) {
-  return <div className="act-resolution-view">
-    <h3 className="coach-section-head">这次的结果</h3>
-    <p>
-      {session.resolution.solved === true ? "原问题已经缓解。" :
-       session.resolution.solved === false ? "原问题还在，可以再走一次。" :
-       "已完成六步。"}
-    </p>
-    {session.resolution.note && <blockquote className="act-resolution-note">{session.resolution.note}</blockquote>}
-    <div className="growth-detail-actions">
-      <button className="primary" onClick={onRestart}>再走一次六步</button>
+function ActActionCard({ session, onStatus, onRestart }: { session: ActSession; onStatus: (status: ActActionStatus, obstacle?: string) => void; onRestart: () => void }) {
+  const plan = session.actionPlan!;
+  return <div className="act-action-card">
+    <div className="act-action-head"><span>{plan.status === "completed" ? "已完成" : plan.status === "tried" ? "已尝试" : plan.status === "blocked" ? "条件未满足" : "准备尝试"}</span><strong>{plan.value}</strong></div>
+    <p><small>最小行动</small>{plan.action}</p>
+    <p><small>条件不满足时</small>{plan.fallback}</p>
+    {plan.when && <p><small>使用场景</small>{plan.when}</p>}
+    {plan.obstacle && <p><small>遇到的障碍</small>{plan.obstacle}</p>}
+    <div className="act-status-actions">
+      <button onClick={() => onStatus("completed")}>做到了</button>
+      <button onClick={() => onStatus("tried")}>尝试了</button>
+      <button onClick={() => onStatus("blocked", "原计划条件未满足，下一次先使用缩小行动。")}>条件未满足</button>
     </div>
+    <button className="text-button" onClick={onRestart}>针对同一问题再走一次</button>
   </div>;
 }
 
 function CoachApp({ username, switchToAba, logout }: { username: string; switchToAba: () => void; logout: () => void }) {
-  type CoachTab = "chat" | "emotion" | "growth" | "journal" | "weekly" | "knowledge";
+  type CoachTab = "chat" | "emotion" | "growth" | "record" | "knowledge";
+  type RecordSubTab = "journal" | "weekly";
   const [tab, setTab] = useState<CoachTab>("chat");
+  const [recordSub, setRecordSub] = useState<RecordSubTab>("journal");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([
-    "你好，这里是一个可以自由表达的空间。你可以聊任何事，我会认真回应你。"
+    "这里先不用解决任何问题。你可以把此刻压在心里的话放下来一点，我会陪你慢慢理清。"
   ]);
-  const [mood, setMood] = useState("平静");
   // 情绪多维记录（今日）
   const [moodDetail, setMoodDetail] = useState<MoodDetail>({ emotions: ["calm"], intensity: 3, triggers: [], body: [], coping: "" });
+  const [customEmotion, setCustomEmotion] = useState("");
   const [journal, setJournal] = useState("");
   const [articleId, setArticleId] = useState<string | null>(null);
   // ACT 六步法：以「一个问题」为单位发起一个 session，可随时再来一次
   // session = { id, problem, steps: [{ key, reflection, completedAt }], resolution, createdAt, updatedAt, status }
-  const ACT_SESSIONS_KEY = "coach_act_sessions";
+  const ACT_SESSIONS_KEY = `coach_act_sessions:${username}`;
   const [actSessions, setActSessions] = useState<ActSession[]>(() => {
     try {
+      localStorage.removeItem("coach_act_sessions");
       const raw = localStorage.getItem(ACT_SESSIONS_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) return (JSON.parse(raw) as ActSession[]).map(session => ({
+        ...session,
+        mode: session.mode || "full",
+        actionPlan: session.actionPlan || null,
+      }));
     } catch { /* ignore */ }
     return [];
   });
@@ -824,6 +1008,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   }, [actSessions]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [newProblem, setNewProblem] = useState("");
+  const [actMode, setActMode] = useState<ActMode>("quick");
   // 知识库：视图模式（"tree"=分类树首屏 / "list"=文章列表）、搜索、选中的分类/子分类
   const [activeCategory, setActiveCategory] = useState<string>("全部");
   const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
@@ -846,7 +1031,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   }});
   const moodMutation = useMutation({
     mutationFn: () => {
-      const primaryLabel = MOOD_LABEL_MAP[moodDetail.emotions[0]] || moodDetail.emotions[0] || mood;
+      const primaryLabel = moodDetail.emotions[0] ? moodLabel(moodDetail.emotions[0]) : "未命名情绪";
       const note = JSON.stringify({ ...moodDetail, savedAt: new Date().toISOString() });
       return api.saveMood({ mood: primaryLabel, intensity: moodDetail.intensity, note });
     },
@@ -863,9 +1048,23 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   const weeklyMutation = useMutation({
     mutationFn: (offset: number) => api.coachWeeklyReport(offset),
   });
+  const weeklyExportMutation = useMutation({
+    mutationFn: api.exportCoachWeeklyReportPdf,
+  });
   const send = () => {
     if (!message.trim()) return;
     coachChatMutation.mutate(message);
+  };
+  const clearCoachChat = useMutation({
+    mutationFn: () => api.clearChatMessages("coach"),
+    onSuccess: () => {
+      setMessages(["这里先不用解决任何问题。你可以把此刻压在心里的话放下来一点，我会陪你慢慢理清。"]);
+      queryClient.invalidateQueries({ queryKey: ["chat", "coach"] });
+    }
+  });
+  const exportCoachJournals = () => {
+    if (!savedJournals.length) return;
+    api.exportJournalsHtml();
   };
   const GROWTH_STAGES: { id: number; name: string; copy: string; practice: string }[] = [];
   void GROWTH_STAGES;
@@ -884,8 +1083,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
     chat: ["陪伴", `${username}，想聊点什么都可以`],
     emotion: ["情绪", "记录今天的状态，看见自己的节奏"],
     growth: ["ACT", "带着一个问题，按自己的节奏走完六步"],
-    journal: ["日记", "留一句话给今天的自己"],
-    weekly: ["周报", "AI 帮你回看本周的变化"],
+    record: ["记录", "写下当下，回看整周"],
     knowledge: ["知识库", "为家长准备的成长内容"]
   };
 
@@ -906,57 +1104,71 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   const startNewSession = () => {
     const problem = newProblem.trim();
     if (!problem) return;
-    const session = newActSession(problem);
+    const session = newActSession(problem, actMode);
     setActSessions(prev => [session, ...prev]);
     setActiveSessionId(session.id);
     setNewProblem("");
   };
 
   const restartSession = (id: string) => {
-    setActSessions(prev => prev.map(s => (s.id === id ? newActSession(s.problem) : s)));
+    setActSessions(prev => prev.map(s => (s.id === id ? newActSession(s.problem, s.mode) : s)));
     setActiveSessionId(id);
   };
 
   const goToJournalFromAct = () => {
     setActiveSessionId(null);
-    setTab("journal");
+    setRecordSub("journal");
+    setTab("record");
   };
 
   const renderActSessionDetail = (session: ActSession) => {
-    const completedCount = ACT_STEPS.filter(step => session.steps[step.key].completedAt).length;
-    const currentIndex = ACT_STEPS.findIndex(step => !session.steps[step.key].completedAt);
+    const activeSteps = session.mode === "quick"
+      ? ACT_STEPS.filter(step => ["awareness", "defusion", "action"].includes(step.key))
+      : ACT_STEPS;
+    const completedCount = activeSteps.filter(step => session.steps[step.key].completedAt).length;
+    const currentIndex = activeSteps.findIndex(step => !session.steps[step.key].completedAt);
     const allDone = currentIndex === -1;
-    const currentStep = allDone ? null : ACT_STEPS[currentIndex];
+    const currentStep = allDone ? null : activeSteps[currentIndex];
     return <>
       <button className="back-link" onClick={() => setActiveSessionId(null)}><ChevronLeft/> 返回</button>
       <div className="act-progress">
-        <p className="eyebrow">{session.status === "completed" ? "已完成" : `进行中 ${completedCount}/${ACT_STEPS.length}`}</p>
-        <div className="act-progress-bar"><span style={{ width: `${(completedCount / ACT_STEPS.length) * 100}%` }} /></div>
+        <p className="eyebrow">{session.mode === "quick" ? "2分钟快速模式" : "完整模式"} · {session.actionPlan ? "已形成行动" : `进行中 ${completedCount}/${activeSteps.length}`}</p>
+        <div className="act-progress-bar"><span style={{ width: `${session.actionPlan ? 100 : (completedCount / activeSteps.length) * 85}%` }} /></div>
         <h2 className="act-problem">{session.problem}</h2>
+        <div className="act-completion-hints"><span className={completedCount === activeSteps.length ? "done" : ""}>过程 {completedCount}/{activeSteps.length}</span><span className={session.actionPlan ? "done" : ""}>行动 {session.actionPlan ? "已形成" : "待形成"}</span><span className={session.actionPlan?.status === "completed" ? "done" : ""}>实践 {session.actionPlan ? ({ planned: "待尝试", tried: "已尝试", completed: "已完成", blocked: "需调整" } as const)[session.actionPlan.status] : "未开始"}</span></div>
       </div>
       {!allDone && currentStep && <ActStepForm
-        session={session}
         step={currentStep}
+        index={currentIndex}
+        total={activeSteps.length}
         onSave={(reflection) => updateSession(session.id, s => ({
           ...s,
           steps: { ...s.steps, [currentStep.key]: { reflection, completedAt: new Date().toISOString() } }
         }))}
+        onBlocked={(reason, fallback) => updateSession(session.id, s => ({
+          ...s,
+          steps: { ...s.steps, [currentStep.key]: { reflection: `暂时跳过：${reason}。替代方式：${fallback}`, completedAt: new Date().toISOString() } }
+        }))}
         onToJournal={goToJournalFromAct}
       />}
-      {allDone && !session.resolution.updatedAt && <ActResolutionForm
+      {allDone && !session.actionPlan && <ActActionPlanForm
         session={session}
-        onSave={(solved, note) => updateSession(session.id, s => ({
-          ...s,
-          resolution: { solved, note, updatedAt: new Date().toISOString() },
+        onSave={(actionPlan) => updateSession(session.id, s => ({
+          ...s, actionPlan,
           status: "completed"
         }))}
-        onRestart={() => restartSession(session.id)}
-        onToJournal={goToJournalFromAct}
       />}
-      {session.resolution.updatedAt && <ActResolutionView session={session} onRestart={() => restartSession(session.id)} />}
+      {session.actionPlan && <ActActionCard
+        session={session}
+        onStatus={(status, obstacle = "") => updateSession(session.id, s => ({
+          ...s,
+          actionPlan: s.actionPlan ? { ...s.actionPlan, status, obstacle, updatedAt: new Date().toISOString() } : null,
+        }))}
+        onRestart={() => restartSession(session.id)}
+      />}
       <details className="act-step-list">
-        <summary>查看所有步骤的记录</summary>
-        <ol>{ACT_STEPS.map(step => (
+        <summary>查看本次过程记录</summary>
+        <ol>{activeSteps.map(step => (
           <li key={step.key}>
             <strong>{step.name}</strong>
             {session.steps[step.key].completedAt
@@ -969,24 +1181,72 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   };
   const page = {
     chat: <>
-      <div className="mood-picker">{["平静", "焦虑", "疲惫", "悲伤"].map(item => <button className={mood === item ? "selected" : ""} onClick={() => setMood(item)} key={item}>{item}</button>)}</div>
       <section className="card coach-chat">
-        <div className="section-title"><span><MessageCircleHeart size={19}/> 陪伴对话</span><small>由 MiniMax-M3 驱动 · ACT 成长支持</small></div>
-        {messages.map((item, index) => <div className={coachHistory[index]?.role === "user" ? "coach-bubble user-message" : "coach-bubble"} key={index}>{item}</div>)}
-        {coachChatMutation.isPending && <div className="coach-bubble">我在听，也在认真想怎么回应你…</div>}
-        <div className="chat-input"><input value={message} onChange={e => setMessage(e.target.value)} placeholder="写一句你现在想说的" /><button onClick={send} disabled={!message.trim() || coachChatMutation.isPending}>发送</button></div>
+        <div className="section-title"><span><MessageCircleHeart size={19}/> 陪伴对话</span>{coachHistory.length > 0 && <div style={{display:"flex",gap:10,alignItems:"center"}}><small style={{display:"flex",gap:10,alignItems:"center"}}><button className="text-button" onClick={() => api.exportChat("coach")}><Download size={14}/> 导出</button><button className="text-button clear-chat-btn" onClick={() => { if (confirm("确定清空全部陪伴对话吗？此操作不可恢复")) clearCoachChat.mutate(); }} disabled={clearCoachChat.isPending}>清空</button></small></div>}</div>
+        <div className="coach-thread">
+          {coachHistory.length === 0 && <p className="muted small coach-thread-intro">不用先判断自己是什么情绪，想到哪里就说到哪里。</p>}
+          {messages.map((item, index) => <div className={coachHistory[index]?.role === "user" ? "coach-bubble user-message" : "coach-bubble"} key={index}>{item}</div>)}
+          {coachChatMutation.isPending && <div className="coach-bubble">我在听，也在认真想怎么回应你…</div>}
+        </div>
+        <div className="chat-input"><input value={message} onChange={e => setMessage(e.target.value)} placeholder="现在最想说的一句话…" onKeyDown={e => { if (e.key === "Enter" && message.trim() && !coachChatMutation.isPending) send(); }} /><button onClick={send} disabled={!message.trim() || coachChatMutation.isPending}>发送</button></div>
       </section>
-      <section className="coach-tip"><strong>今天可以这样试一次</strong><p>把想做的事缩小到 2 分钟，先开始，再看接下来要不要继续。</p><button onClick={() => setTab("journal")}>写进今日反思</button></section>
     </>,
     emotion: (() => {
-      // 解析最近 30 条记录的 detail，按情绪计数
-      const recentDetails = savedMoods.map(item => parseMoodDetail(item.note)).filter(Boolean) as MoodDetail[];
-      const todayDetail = recentDetails[0] || null;
+      const burdenEmotions = new Set(["anxious", "tense", "restless", "overwhelmed", "sad", "exhausted", "empty", "lonely", "angry", "frustrated", "ashamed", "guilty", "confused", "doubtful", "numb", "helpless"]);
+      const records = savedMoods.map(item => {
+        const detail = parseMoodDetail(item.note);
+        return {
+          ...item,
+          detail,
+          date: new Date(`${item.entry_date}T12:00:00`),
+          burden: Boolean(detail?.emotions.some(key => burdenEmotions.has(key))),
+        };
+      });
+      const recentRecords = records.slice(0, 3);
+      const previousRecords = records.slice(3, 6);
+      const highBurdenDays = (rows: typeof records) => rows.filter(item => item.burden && item.intensity >= 4).length;
+      const burdenAverage = (rows: typeof records) => rows.length
+        ? rows.reduce((sum, item) => sum + (item.burden ? item.intensity : 0), 0) / rows.length
+        : 0;
+      let coachTrend = { status: "insufficient", title: "继续记录，历史会逐渐清楚", message: `目前有 ${records.length} 条情绪记录；累计6条后，比较最近3条与此前3条，不要求连续打卡。` };
+      if (recentRecords.length >= 3 && previousRecords.length >= 3) {
+        const recentHigh = highBurdenDays(recentRecords);
+        const previousHigh = highBurdenDays(previousRecords);
+        const loadDelta = burdenAverage(recentRecords) - burdenAverage(previousRecords);
+        if (recentHigh < previousHigh || loadDelta <= -0.5) {
+          coachTrend = { status: "progress", title: "最近记录中的情绪负荷有所下降", message: `较强负面情绪由此前3条中的 ${previousHigh} 条，降至最近3条中的 ${recentHigh} 条。` };
+        } else if (recentHigh > previousHigh || loadDelta >= 0.5) {
+          coachTrend = { status: "regression", title: "最近记录中的情绪负荷需要关注", message: `较强负面情绪由此前3条中的 ${previousHigh} 条，增至最近3条中的 ${recentHigh} 条。` };
+        } else {
+          coachTrend = { status: "stable", title: "最近记录中的情绪负荷基本稳定", message: `前后两组记录中的较强负面情绪均为 ${recentHigh} 条，没有观察到明确变化。` };
+        }
+      }
+      const history30 = records.slice(0, 30).reverse();
+      const weekGroups = new Map<string, typeof records>();
+      records.forEach(item => {
+        const monday = new Date(item.date);
+        monday.setDate(item.date.getDate() - ((item.date.getDay() + 6) % 7));
+        const key = monday.toISOString().slice(0, 10);
+        if (!weekGroups.has(key)) weekGroups.set(key, []);
+        weekGroups.get(key)!.push(item);
+      });
+      const moodWeeks = Array.from(weekGroups.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-4).map(([key, rows]) => {
+        const start = new Date(`${key}T12:00:00`);
+        return {
+          key,
+          label: `${start.getMonth() + 1}/${start.getDate()}`,
+          count: rows.length,
+          average: rows.reduce((sum, item) => sum + item.intensity, 0) / rows.length,
+        };
+      });
+      const recentDetails = records.map(item => item.detail).filter(Boolean) as MoodDetail[];
       const last7 = recentDetails.slice(0, 7);
-      const avgIntensity = last7.length ? (last7.reduce((s, d) => s + d.intensity, 0) / last7.length).toFixed(1) : "—";
       const emotionCounts: Record<string, number> = {};
       last7.forEach(d => d.emotions.forEach(k => { emotionCounts[k] = (emotionCounts[k] || 0) + 1; }));
       const topEmotions = Object.entries(emotionCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+      const triggerCounts: Record<string, number> = {};
+      records.slice(0, 30).forEach(item => item.detail?.triggers.forEach(trigger => { triggerCounts[trigger] = (triggerCounts[trigger] || 0) + 1; }));
+      const topTriggers = Object.entries(triggerCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
 
       const toggleIn = <T,>(arr: T[], v: T) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
       const toggleEmotion = (key: string) => {
@@ -997,23 +1257,38 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
       };
       const toggleTrigger = (label: string) => setMoodDetail(prev => ({ ...prev, triggers: toggleIn(prev.triggers, label) }));
       const toggleBody = (label: string) => setMoodDetail(prev => ({ ...prev, body: toggleIn(prev.body, label) }));
+      const addCustomEmotion = () => {
+        const label = customEmotion.trim().slice(0, 20);
+        if (!label) return;
+        const builtIn = Object.entries(MOOD_LABEL_MAP).find(([, value]) => value === label)?.[0];
+        const key = builtIn || `custom:${label}`;
+        setMoodDetail(prev => ({ ...prev, emotions: prev.emotions.includes(key) ? prev.emotions : [...prev.emotions, key] }));
+        setCustomEmotion("");
+      };
 
       const canSave = moodDetail.emotions.length > 0;
-      const primaryLabel = moodDetail.emotions.map(k => MOOD_LABEL_MAP[k] || k).join(" · ");
+      const primaryLabel = moodDetail.emotions.map(moodLabel).join(" · ");
 
       return <>
-        <section className="card emotion-panel">
-          <div className="emotion-stats">
-            <div><span>本周强度</span><strong>{avgIntensity}</strong><small>/5</small></div>
-            <div><span>已记录</span><strong>{savedMoods.length}</strong><small>天</small></div>
-            <div><span>常见情绪</span><strong className="emotion-top">{topEmotions.map(([k]) => MOOD_LABEL_MAP[k] || k).join(" · ") || "—"}</strong></div>
+        <section className={`coach-trend-conclusion ${coachTrend.status}`}>
+          <div><span>{coachTrend.status === "progress" ? "改善" : coachTrend.status === "regression" ? "需关注" : coachTrend.status === "stable" ? "稳定" : "数据不足"}</span><h2>{coachTrend.title}</h2></div>
+          <p>{coachTrend.message}</p>
+        </section>
+        <section className="card coach-trend-card">
+          <div className="section-title"><span>最近30条情绪强度</span><small>{records[0] ? `上次 ${records[0].date.getMonth() + 1}/${records[0].date.getDate()}` : "尚无记录"}</small></div>
+          <div className="coach-month-chart" aria-label="最近30条情绪强度趋势">
+            {history30.map(item => <i className={`recorded level-${item.intensity}`} title={`${item.date.getMonth() + 1}/${item.date.getDate()} 强度${item.intensity}/5`} key={item.id}>
+              <span style={{ height: `${item.intensity * 20}%` }}/>
+            </i>)}
+            {!history30.length && <em>保存第一条记录后，这里会保留历史趋势。</em>}
           </div>
-          <div className="emotion-trend" aria-label="近 7 天强度趋势">
-            {Array.from({ length: 7 }).map((_, i) => {
-              const d = last7[i];
-              const v = d ? d.intensity : 0;
-              return <div key={i} className={`emotion-bar ${v ? `lvl-${v}` : "empty"}`} title={d ? `${v}/5` : "未记录"}><span style={{ height: `${(v / 5) * 100}%` }} /></div>;
-            })}
+          <div className="coach-week-list">{moodWeeks.map(week => <div key={week.key}>
+            <span>{week.label}</span><div><i style={{ width: `${week.average ? week.average / 5 * 100 : 0}%` }}/></div>
+            <strong>{week.average === null ? "—" : week.average.toFixed(1)}</strong><small>{week.count}天</small>
+          </div>)}</div>
+          <div className="coach-patterns">
+            <div><span>常见情绪</span><strong>{topEmotions.map(([key]) => moodLabel(key)).join(" · ") || "尚无记录"}</strong></div>
+            <div><span>明确触发因素</span><strong>{topTriggers.length ? topTriggers.map(([trigger, count]) => `${trigger} ${count}次`).join(" · ") : "尚未记录触发因素"}</strong></div>
           </div>
         </section>
 
@@ -1031,6 +1306,23 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
                   </div>
                 </div>
               ))}
+              <div className="mood-family custom-mood-family">
+                <span className="mood-family-title">没有合适的词？写下自己的感受</span>
+                <div className="custom-emotion-input">
+                  <input
+                    value={customEmotion}
+                    maxLength={20}
+                    onChange={e => setCustomEmotion(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomEmotion(); } }}
+                    placeholder="例如：悬着、憋闷、被理解"
+                  />
+                  <button onClick={addCustomEmotion} disabled={!customEmotion.trim()}>添加</button>
+                </div>
+                {moodDetail.emotions.some(key => key.startsWith("custom:")) && <div className="mood-chips custom-emotion-selected">
+                  {moodDetail.emotions.filter(key => key.startsWith("custom:")).map(key =>
+                    <button className="selected" key={key} onClick={() => toggleEmotion(key)}>{moodLabel(key)} ×</button>)}
+                </div>}
+              </div>
             </div>
           </div>
 
@@ -1074,7 +1366,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
               return <article key={item.id} className="emotion-history-item">
                 <time>{date.toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}</time>
                 <div>
-                  <strong>{detail ? detail.emotions.map(k => MOOD_LABEL_MAP[k] || k).join(" · ") : item.mood}</strong>
+                  <strong>{detail ? detail.emotions.map(moodLabel).join(" · ") : item.mood}</strong>
                   <span className="emotion-intensity-badge">强度 {item.intensity}/5</span>
                   {detail && detail.triggers.length > 0 && <p className="emotion-history-tags"><small>场景：</small>{detail.triggers.join("、")}</p>}
                   {detail && detail.body.length > 0 && <p className="emotion-history-tags"><small>身体：</small>{detail.body.join("、")}</p>}
@@ -1088,9 +1380,13 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
     growth: activeSession ? <section className="card act-session">{renderActSessionDetail(activeSession)}</section> : <>
       <section className="card act-intake">
         <h3 className="coach-section-head">现在困扰你的是什么？</h3>
-        <p className="muted small">用一句话写下你今天最想处理的问题。ACT 会按 6 步陪你走一遍——觉察 → 接纳 → 解离 → 当下 → 价值 → 行动。</p>
+        <p className="muted small">不要求问题先消失。选择适合此刻精力的方式，最后形成一个现实可行的最小行动。</p>
+        <div className="act-mode-picker">
+          <button className={actMode === "quick" ? "selected" : ""} onClick={() => setActMode("quick")}><strong>2分钟快速模式</strong><small>觉察 → 解离 → 最小行动</small></button>
+          <button className={actMode === "full" ? "selected" : ""} onClick={() => setActMode("full")}><strong>完整模式</strong><small>六个过程，适合有更多空间时</small></button>
+        </div>
         <textarea value={newProblem} onChange={e => setNewProblem(e.target.value)} placeholder="比如：晚上孩子又哭闹，我忍不住对他吼了。" rows={3}/>
-        <button className="primary" disabled={!newProblem.trim()} onClick={startNewSession}>开始六步</button>
+        <button className="primary" disabled={!newProblem.trim()} onClick={startNewSession}>开始{actMode === "quick" ? "快速练习" : "完整练习"}</button>
       </section>
       <h3 className="coach-section-head">过往问题（{sortedSessions.length}）</h3>
       {sortedSessions.length === 0 ? <p className="muted small">发起第一个问题后，会按时间倒序保存在这里。</p> :
@@ -1102,38 +1398,59 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
               <small>{new Date(session.updatedAt).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}</small>
             </div>
             <p className="muted small">
-              {session.status === "completed"
-                ? (session.resolution.solved === true ? "已解决" : session.resolution.solved === false ? "未解决" : "已完成六步")
-                : `进行中 ${completedCount}/${ACT_STEPS.length}`}
+              {session.actionPlan
+                ? `行动卡 · ${{ planned: "待尝试", tried: "已尝试", completed: "已完成", blocked: "条件未满足" }[session.actionPlan.status]}`
+                : session.status === "completed" ? "已完成旧版练习" : `进行中 ${completedCount}/${session.mode === "quick" ? 3 : ACT_STEPS.length}`}
             </p>
           </button>;
         })}</div>}
     </>,
-    journal: <>
-      <section className="card journal-card"><p>今天有没有一个你想记录下来的瞬间？</p><p>如果有朋友处在你今天的位置，你会对他说什么？</p><textarea value={journal} onChange={e => setJournal(e.target.value)} placeholder="想到什么写什么，不必完整"/><button className="coach-main-button" disabled={!journal.trim() || journalMutation.isPending} onClick={() => journalMutation.mutate()}>保存今日反思</button></section>
-      <h3 className="coach-section-head">过往记录</h3>
-      <div className="journal-history">{savedJournals.length ? savedJournals.map(item => <article key={item.id}><time>{new Date(item.created_at).toLocaleDateString("zh-CN", {month: "short", day: "numeric"})}</time><div><strong>{item.content.slice(0, 18)}</strong><p>{item.content}</p></div></article>) : <p className="muted">保存第一篇反思后会显示在这里。</p>}</div>
-    </>,
-    weekly: <>
-      <section className="card weekly-card">
-        <div className="weekly-week-switch">
-          <button className={weekOffset === 0 ? "selected" : ""} onClick={() => setWeekOffset(0)}>本周</button>
-          <button className={weekOffset === -1 ? "selected" : ""} onClick={() => setWeekOffset(-1)}>上周</button>
+    record: <>
+      <div className="record-subtabs">
+        <button className={recordSub === "journal" ? "selected" : ""} onClick={() => setRecordSub("journal")}><PenLine size={16}/> 日记</button>
+        <button className={recordSub === "weekly" ? "selected" : ""} onClick={() => setRecordSub("weekly")}><BarChart3 size={16}/> 周报</button>
+      </div>
+      {recordSub === "journal" ? <>
+        <section className="card journal-card">
+          <p>今天有没有一个你想记录下来的瞬间？</p>
+          <p>如果有朋友处在你今天的位置，你会对他说什么？</p>
+          <textarea value={journal} onChange={e => setJournal(e.target.value)} placeholder="想到什么写什么，不必完整"/>
+          <button className="coach-main-button" disabled={!journal.trim() || journalMutation.isPending} onClick={() => journalMutation.mutate()}>保存今日反思</button>
+        </section>
+        <div className="record-section-head">
+          <h3 className="coach-section-head">过往记录（{savedJournals.length}）</h3>
+          {savedJournals.length > 0 && <button className="text-button" onClick={exportCoachJournals}><Download size={14}/> 导出 HTML</button>}
         </div>
-        <p className="muted small">AI 会根据你本周的情绪、日记和对话数据，写一份简短的回顾。</p>
-        <button className="primary" disabled={weeklyMutation.isPending} onClick={() => weeklyMutation.mutate(weekOffset)}>
-          {weeklyMutation.isPending ? "正在生成…" : weeklyMutation.data ? `重新生成${weekOffset === 0 ? "本周" : "上周"}周报` : `生成${weekOffset === 0 ? "本周" : "上周"}周报`}
-        </button>
-        {weeklyMutation.isError && <p className="muted small">生成失败，请稍后再试。</p>}
-        {weeklyMutation.data && <>
-          <div className="weekly-meta">
-            <span>{weeklyMutation.data.week_start} ~ {weeklyMutation.data.week_end}</span>
-            <span>情绪 {weeklyMutation.data.mood_count} · 日记 {weeklyMutation.data.journal_count} · 对话 {weeklyMutation.data.chat_count}</span>
-            {weeklyMutation.data.fallback && <small>· 规则版（AI 暂不可用）</small>}
+        <div className="journal-history">{savedJournals.length ? savedJournals.map(item => <article key={item.id}><time>{new Date(item.created_at).toLocaleDateString("zh-CN", {month: "short", day: "numeric"})}</time><div><strong>{item.content.slice(0, 18)}</strong><p>{item.content}</p></div></article>) : <p className="muted">保存第一篇反思后会显示在这里。</p>}</div>
+      </> : <>
+        <section className="card weekly-card">
+          <div className="weekly-week-switch">
+            <button className={weekOffset === 0 ? "selected" : ""} onClick={() => setWeekOffset(0)}>本周</button>
+            <button className={weekOffset === -1 ? "selected" : ""} onClick={() => setWeekOffset(-1)}>上周</button>
           </div>
-          <div className="weekly-content">{weeklyMutation.data.content}</div>
-        </>}
-      </section>
+          <p className="muted small">AI 会根据你本周的情绪、日记和对话数据，写一份简短的回顾。</p>
+          <button className="primary" disabled={weeklyMutation.isPending} onClick={() => weeklyMutation.mutate(weekOffset)}>
+            {weeklyMutation.isPending ? "正在生成…" : weeklyMutation.data ? `重新生成${weekOffset === 0 ? "本周" : "上周"}周报` : `生成${weekOffset === 0 ? "本周" : "上周"}周报`}
+          </button>
+          {weeklyMutation.isError && <p className="muted small">生成失败，请稍后再试。</p>}
+          {weeklyMutation.data && <>
+            <div className="weekly-meta">
+              <span>{weeklyMutation.data.week_start} ~ {weeklyMutation.data.week_end}</span>
+              <span>情绪 {weeklyMutation.data.mood_count} · 日记 {weeklyMutation.data.journal_count} · 对话 {weeklyMutation.data.chat_count}</span>
+              {weeklyMutation.data.fallback && <small>· 规则版（AI 暂不可用）</small>}
+            </div>
+            <div className="weekly-content">{weeklyMutation.data.content}</div>
+            <button
+              className="secondary"
+              disabled={weeklyExportMutation.isPending}
+              onClick={() => weeklyExportMutation.mutate(weeklyMutation.data)}
+            >
+              <Download size={15}/> {weeklyExportMutation.isPending ? "正在导出…" : "导出 PDF"}
+            </button>
+            {weeklyExportMutation.isError && <p className="muted small">导出失败，请稍后再试。</p>}
+          </>}
+        </section>
+      </>}
     </>,
     knowledge: articleId ? <section className="article-detail"><button className="back-link" onClick={() => setArticleId(null)}><ChevronLeft/> 返回知识库</button>{selectedArticle ? <><p className="eyebrow">{CATEGORY_LABELS[selectedArticle.category] || selectedArticle.category}{selectedArticle.subcategory ? ` · ${selectedArticle.subcategory}` : ""} · {selectedArticle.read_time}</p><h2>{selectedArticle.title}</h2><p className="article-summary">{selectedArticle.summary}</p><div className="article-content">{selectedArticle.content}</div>{selectedArticle.related && selectedArticle.related.length > 0 && <><h3 className="related-articles-head">📚 相关文章</h3><div className="knowledge-list">{selectedArticle.related.map(item => <button key={item.id} onClick={() => setArticleId(item.id)}><small>{item.subcategory} · {item.read_time}</small><strong>{item.title}</strong><ChevronRight/></button>)}</div></>}</> : <p>正在加载文章…</p>}</section> : (() => {
       const items = articleCatalog?.items || [];
@@ -1189,16 +1506,16 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   }[tab];
   const navItems = [
     ["chat", "陪伴", MessageCircleHeart], ["emotion", "情绪", Smile], ["growth", "成长", Sprout],
-    ["journal", "日记", PenLine], ["weekly", "周报", BarChart3], ["knowledge", "知识库", BookOpen]
+    ["record", "记录", PenLine], ["knowledge", "知识库", BookOpen]
   ] as const;
   return <main className="coach-shell">
-    <header className="coach-hero compact">
+    <header className={`coach-hero compact ${tab === "chat" ? "coach-chat-hero" : ""}`}>
       <button onClick={switchToAba}><ChevronLeft /> 皮特 - ABA 智能助手</button>
       <p className="eyebrow">家长陪伴 · {headers[tab][0]}</p>
       <h1>{headers[tab][1]}</h1>
       <p>一个安全、温和、不评判的空间</p>
     </header>
-    <section className="coach-content">{page}{tab === "knowledge" && <button className="coach-logout" onClick={logout}>退出登录</button>}</section>
+    <section className={`coach-content ${tab === "chat" ? "coach-chat-content" : ""}`}>{page}{tab === "knowledge" && <button className="coach-logout" onClick={logout}>退出登录</button>}</section>
     <nav className="coach-nav">{navItems.map(([id, label, Icon]) => <button className={tab === id ? "active" : ""} onClick={() => setTab(id)} key={id}><Icon/><span>{label}</span></button>)}</nav>
   </main>;
 }
@@ -1318,8 +1635,15 @@ function App() {
     setMode(next);
     localStorage.setItem("aba_product_mode", next);
   };
-  const logout = () => { api.tokenStore.clear(); setAuthenticated(false); };
-  if (!authenticated || isError) return <Auth mode={mode} setMode={chooseMode} onDone={() => { setAuthenticated(true); queryClient.invalidateQueries(); }} />;
+  const logout = () => {
+    api.tokenStore.clear();
+    queryClient.clear();
+    setAuthenticated(false);
+  };
+  if (!authenticated || isError) return <Auth mode={mode} setMode={chooseMode} onDone={() => {
+    queryClient.clear();
+    setAuthenticated(true);
+  }} />;
   if (!user) return <main className="loading"><Sparkles/> 正在准备你的家庭空间…</main>;
   if (user.role === "expert") return <ExpertApp username={user.username} logout={logout}/>;
   if (user.role === "admin") return <main className="auth"><div className="brand-mark"><ShieldCheck/></div><p className="eyebrow">管理员账户</p><h1>请进入系统管理后台</h1><p className="muted">管理员与家长、专家工作空间已完全分开。</p><button className="primary" onClick={() => location.href = "/admin/"}>打开管理后台</button><button className="danger" onClick={logout}>退出登录</button></main>;
@@ -1330,7 +1654,7 @@ function App() {
     child: <ChildPage child={child}/>,
     training: <TrainingPage child={child}/>,
     progress: <ProgressPage child={child}/>,
-    me: <section className="me-page"><div className="avatar large">{user.username.slice(0, 1)}</div><h1>{user.username}</h1><p>星星家庭成员</p><button className="card product-switch-card" onClick={() => chooseMode("coach")}><MessageCircleHeart/><span>进入家长陪伴<small>情绪支持、成长练习与反思日记</small></span><ChevronRight/></button><button className="danger" onClick={logout}>退出登录</button></section>
+    me: <MePage username={user.username} child={child} switchToCoach={() => chooseMode("coach")} logout={logout}/>
   }[tab];
   const nav = [
     ["home", "首页", Home], ["child", "孩子", Baby], ["training", "训练", Target],

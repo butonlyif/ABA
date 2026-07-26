@@ -9,6 +9,8 @@ from ..database import SessionLocal
 from ..models import Child, Report, SystemEvent, Task, TrainingSession
 from .storage import get_storage
 
+MIN_TRIALS_PER_SESSION = 5
+
 
 def _percentage(session: TrainingSession) -> int:
     values = [trial.result for trial in session.trials]
@@ -102,13 +104,14 @@ def complete_report(report_id: str) -> None:
         if not report or report.status == "completed":
             return
         child = db.get(Child, report.child_id)
-        sessions = db.scalars(
+        all_sessions = db.scalars(
             select(TrainingSession).options(selectinload(TrainingSession.trials)).where(
                 TrainingSession.user_id == report.user_id,
                 TrainingSession.child_id == report.child_id,
                 TrainingSession.status == "completed",
             ).order_by(TrainingSession.created_at.desc())
         ).all()
+        sessions = [session for session in all_sessions if len(session.trials) >= MIN_TRIALS_PER_SESSION]
         percentages = [_percentage(item) for item in sessions]
         average = round(sum(percentages) / len(percentages)) if percentages else 0
         training_days = len({item.created_at.date().isoformat() for item in sessions})

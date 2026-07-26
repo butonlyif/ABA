@@ -1,4 +1,5 @@
 from uuid import uuid4
+from concurrent.futures import ThreadPoolExecutor
 
 
 def test_complete_core_flow(client, auth):
@@ -34,17 +35,43 @@ def test_complete_core_flow(client, auth):
         headers={**auth, "Idempotency-Key": str(uuid4())},
         json={"child_id": child_id, "task_id": tasks[0]["id"], "skill_name": tasks[0]["name"]},
     ).json()
-    for result in ["I", "I", "P", "E"]:
-        client.post(f"/api/v1/training-sessions/{session['id']}/trials", headers=auth, json={"result": result})
+    first_trial = client.post(
+        f"/api/v1/training-sessions/{session['id']}/trials",
+        headers=auth,
+        json={"result": "I"},
+    )
+    assert first_trial.status_code == 200
+    too_short = client.post(f"/api/v1/training-sessions/{session['id']}/finish", headers=auth)
+    assert too_short.status_code == 400
+    assert "至少记录 5 个回合" in too_short.json()["detail"]
+    for result in ["V", "M", "P", "E"]:
+        response = client.post(
+            f"/api/v1/training-sessions/{session['id']}/trials",
+            headers=auth,
+            json={"result": result},
+        )
+        assert response.status_code == 200
+    invalid = client.post(
+        f"/api/v1/training-sessions/{session['id']}/trials",
+        headers=auth,
+        json={"result": "X"},
+    )
+    assert invalid.status_code == 422
     active = client.get(f"/api/v1/training-sessions/active?child_id={child_id}", headers=auth).json()
     assert active["id"] == session["id"]
     client.post(f"/api/v1/training-sessions/{session['id']}/trials", headers=auth, json={"result": "E"})
     undone = client.delete(f"/api/v1/training-sessions/{session['id']}/trials/latest", headers=auth).json()
-    assert len(undone["trials"]) == 4
+    assert undone["trials"] == ["I", "V", "M", "P", "E"]
     finished = client.post(f"/api/v1/training-sessions/{session['id']}/finish", headers=auth).json()
-    assert finished["percentage"] == 50
+    assert finished["percentage"] == 20
     progress = client.get(f"/api/v1/progress?child_id={child_id}", headers=auth).json()
     assert progress["completed_sessions"] == 1
+    assert progress["last_training_at"]
+    assert progress["trend"]["status"] == "insufficient"
+    assert len(progress["weekly"]) == 4
+    assert progress["weekly"][-1]["results"] == {"I": 1, "V": 1, "M": 1, "P": 1, "E": 1}
+    assert progress["skills"][0]["skill_name"] == tasks[0]["name"]
+    assert progress["skills"][0]["status"] == "insufficient"
     report = client.post("/api/v1/reports", headers=auth, json={"child_id": child_id})
     assert report.status_code == 202
     reports = client.get(f"/api/v1/reports?child_id={child_id}", headers=auth).json()
@@ -58,9 +85,113 @@ def test_complete_core_flow(client, auth):
 
 def test_cross_user_child_isolation(client, auth):
     child_id = client.post("/api/v1/children", headers=auth, json={"name": "小星"}).json()["id"]
+    task = client.post(
+        "/api/v1/tasks", headers=auth,
+        json={"child_id": child_id, "name": "私密训练", "category": "测试"},
+    ).json()
+    session = client.post(
+        "/api/v1/training-sessions",
+        headers={**auth, "Idempotency-Key": str(uuid4())},
+        json={"child_id": child_id, "task_id": task["id"], "skill_name": task["name"]},
+    ).json()
+    client.post("/api/v1/coach/moods", headers=auth, json={"mood": "只属于A", "intensity": 3})
+    client.post("/api/v1/coach/journals", headers=auth, json={"content": "A账户的私密日记"})
+    client.post("/api/v1/coach/chat", headers=auth, json={"message": "A账户的私密对话"})
     other = client.post("/api/v1/auth/register", json={"username": "other", "password": "strongpass"}).json()
     other_auth = {"Authorization": f"Bearer {other['access_token']}"}
     assert client.get(f"/api/v1/tasks?child_id={child_id}", headers=other_auth).status_code == 404
+    assert client.get(f"/api/v1/progress?child_id={child_id}", headers=other_auth).status_code == 404
+    assert client.get(f"/api/v1/child-avatars/{child_id}", headers=other_auth).status_code == 404
+    assert client.post(
+        f"/api/v1/training-sessions/{session['id']}/trials",
+        headers=other_auth, json={"result": "I"},
+    ).status_code == 404
+    assert client.delete(
+        f"/api/v1/training-sessions/{session['id']}/trials/latest", headers=other_auth
+    ).status_code == 404
+    assert client.post(
+        f"/api/v1/training-sessions/{session['id']}/finish", headers=other_auth
+    ).status_code == 404
+    assert client.get("/api/v1/coach/moods", headers=other_auth).json() == []
+    assert client.get("/api/v1/coach/journals", headers=other_auth).json() == []
+    assert client.get("/api/v1/chat/messages?product=coach", headers=other_auth).json() == []
+
+
+def test_login_refresh_logout_token_lifecycle(client):
+    tokens = client.post(
+        "/api/v1/auth/register", json={"username": "logincheck", "password": "strongpass"}
+    ).json()
+    assert client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}
+    ).status_code == 200
+    assert client.post(
+        "/api/v1/auth/login", json={"username": "logincheck", "password": "wrongpass"}
+    ).status_code == 401
+    refreshed = client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert refreshed.status_code == 200
+    assert client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    ).status_code == 401
+    current_refresh = refreshed.json()["refresh_token"]
+    assert client.post(
+        "/api/v1/auth/logout", json={"refresh_token": current_refresh}
+    ).status_code == 204
+    assert client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": current_refresh}
+    ).status_code == 401
+
+
+def test_registration_normalizes_username_and_reports_duplicates(client):
+    created = client.post(
+        "/api/v1/auth/register",
+        json={"username": "  newfamily  ", "password": "strongpass"},
+    )
+    assert created.status_code == 201
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"username": "newfamily", "password": "strongpass"},
+    ).status_code == 200
+    duplicate = client.post(
+        "/api/v1/auth/register",
+        json={"username": "newfamily", "password": "strongpass"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "用户名已存在"
+    whitespace = client.post(
+        "/api/v1/auth/register",
+        json={"username": "  ", "password": "strongpass"},
+    )
+    assert whitespace.status_code == 422
+    assert whitespace.json()["detail"] == "用户名至少需要 2 个字符"
+
+
+def test_concurrent_tokens_never_cross_users(client):
+    identities = []
+    for index in range(12):
+        username = f"loaduser{index}"
+        tokens = client.post(
+            "/api/v1/auth/register",
+            json={"username": username, "password": "strongpass"},
+        ).json()
+        identities.append((username, tokens["access_token"]))
+
+    requests = identities * 10
+
+    def read_identity(item):
+        expected, token = item
+        response = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}", "X-Forwarded-For": f"10.0.0.{len(expected)}"},
+        )
+        return expected, response.status_code, response.json().get("username")
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(read_identity, requests))
+
+    assert len(results) == 120
+    assert all(status == 200 and actual == expected for expected, status, actual in results)
 
 
 def test_coach_records_are_persisted(client, auth):
@@ -73,6 +204,9 @@ def test_coach_records_are_persisted(client, auth):
     assert overview["journal_count"] == 1
     reply = client.post("/api/v1/coach/chat", headers=auth, json={"message": "今天真的很累"}).json()
     assert reply["answer"]
+    assert "ABA" not in reply["answer"]
+    assert "孩子" not in reply["answer"]
+    assert "我注意到" in reply["answer"]
     history = client.get("/api/v1/chat/messages?product=coach", headers=auth).json()
     assert [item["role"] for item in history] == ["user", "assistant"]
     from app.database import SessionLocal
@@ -83,6 +217,11 @@ def test_coach_records_are_persisted(client, auth):
     db.close()
     assert usage.product == "coach"
     assert usage.fallback is True
+    weekly = client.post("/api/v1/coach/weekly-report", headers=auth).json()
+    exported = client.post("/api/v1/coach/weekly-report/export", headers=auth, json=weekly)
+    assert exported.status_code == 200
+    assert exported.headers["content-type"] == "application/pdf"
+    assert exported.content.startswith(b"%PDF")
 
 
 def test_parent_selects_expert_and_expert_replies(client, auth):

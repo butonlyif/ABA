@@ -64,12 +64,59 @@ export type SkillCatalog = {
   skills: SkillTemplate[];
 };
 
+export type TrialResult = "I" | "V" | "M" | "P" | "E";
+
 export type Session = {
   id: string;
   skill_name: string;
-  trials: string[];
+  trials: TrialResult[];
   percentage: number;
   status: string;
+};
+
+export type ProgressData = {
+  completed_sessions: number;
+  training_days: number;
+  average_percentage: number;
+  last_training_at: string | null;
+  timeline: Session[];
+  trend: {
+    status: "progress" | "stable" | "regression" | "insufficient";
+    title: string;
+    message: string;
+    delta: number | null;
+    recent_rate: number | null;
+    previous_rate: number | null;
+    evidence_sessions: number;
+  };
+  weekly: {
+    week_start: string;
+    label: string;
+    sessions: number;
+    trials: number;
+    independent_rate: number | null;
+    results: Record<TrialResult, number>;
+  }[];
+  skills: {
+    skill_name: string;
+    current_rate: number | null;
+    previous_rate: number | null;
+    delta: number | null;
+    status: "progress" | "stable" | "regression" | "insufficient";
+    current_sessions: number;
+    previous_sessions: number;
+  }[];
+};
+
+export type CoachWeeklyReport = {
+  week_start: string;
+  week_end: string;
+  mood_count: number;
+  journal_count: number;
+  chat_count: number;
+  content: string;
+  provider: string;
+  fallback: boolean;
 };
 
 export type Expert = {
@@ -117,7 +164,11 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "请求失败" }));
-    throw new Error(error.detail || "请求失败");
+    const detail = error.detail;
+    const message = Array.isArray(detail)
+      ? detail.map(item => item?.msg || "填写内容不符合要求").join("；")
+      : typeof detail === "string" ? detail : "请求失败";
+    throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -126,9 +177,9 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 export const api = {
   tokenStore,
   register: (username: string, password: string) =>
-    request<Tokens>("/auth/register", { method: "POST", body: JSON.stringify({ username, password }) }),
+    request<Tokens>("/auth/register", { method: "POST", body: JSON.stringify({ username: username.trim(), password }) }),
   login: (username: string, password: string) =>
-    request<Tokens>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    request<Tokens>("/auth/login", { method: "POST", body: JSON.stringify({ username: username.trim(), password }) }),
   me: () => request<{ id: string; username: string; role: string }>("/auth/me"),
   children: () => request<Child[]>("/children"),
   createChild: (body: Partial<Child>) => request<Child>("/children", { method: "POST", body: JSON.stringify(body) }),
@@ -167,6 +218,18 @@ export const api = {
     request<Child>(`/children/${childId}/avatar`, { method: "DELETE" }),
   regenerateChildAvatar: (childId: string) =>
     request<Child>(`/children/${childId}/avatar/regenerate`, { method: "POST" }),
+  childAvatar: async (childId: string) => {
+    const fetchAvatar = () => fetch(`${API_URL}/child-avatars/${childId}`, {
+      headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {}
+    });
+    let response = await fetchAvatar();
+    if (response.status === 401 && tokenStore.refresh) {
+      await request("/auth/me");
+      response = await fetchAvatar();
+    }
+    if (!response.ok) throw new Error("头像加载失败");
+    return URL.createObjectURL(await response.blob());
+  },
   tasks: (childId: string) => request<Task[]>(`/tasks?child_id=${childId}`),
   deleteTask: (taskId: string) => request<void>(`/tasks/${taskId}`, { method: "DELETE" }),
   createTask: (body: { child_id: string; name: string; description?: string; category: string; is_daily?: boolean }) =>
@@ -187,7 +250,7 @@ export const api = {
       headers: { "Idempotency-Key": uuid() },
       body: JSON.stringify({ child_id: childId, task_id: task.id, skill_name: task.name })
     }),
-  addTrial: (sessionId: string, result: string) =>
+  addTrial: (sessionId: string, result: TrialResult) =>
     request<Session>(`/training-sessions/${sessionId}/trials`, { method: "POST", body: JSON.stringify({ result }) }),
   activeSession: (childId: string) =>
     request<Session | null>(`/training-sessions/active?child_id=${childId}`),
@@ -203,7 +266,7 @@ export const api = {
     if (!response.ok) throw new Error("卡片加载失败");
     return URL.createObjectURL(await response.blob());
   },
-  progress: (childId: string) => request<any>(`/progress?child_id=${childId}`),
+  progress: (childId: string) => request<ProgressData>(`/progress?child_id=${childId}`),
   reports: (childId: string) => request<any[]>(`/reports?child_id=${childId}`),
   generateReport: (childId: string) =>
     request<any>("/reports", { method: "POST", body: JSON.stringify({ child_id: childId }) }),
@@ -319,5 +382,65 @@ export const api = {
   coachArticles: (q?: string) => request<{ items: { id: string; title: string; category: string; subcategory: string; level: string; read_time: string; summary: string }[] }>(`/coach/articles${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   coachCategories: () => request<{ items: { id: string; name: string; icon: string; desc: string; color: string; count: number; children: { id: string; name: string; icon: string; desc: string; count: number }[] }[] }>("/coach/categories"),
   coachArticle: (id: string) => request<{ id: string; title: string; category: string; subcategory: string; summary: string; content: string; read_time: string; related: { id: string; title: string; subcategory: string; read_time: string }[] }>(`/coach/articles/${id}`),
-  coachWeeklyReport: (week_offset: number = 0) => request<{ week_start: string; week_end: string; mood_count: number; journal_count: number; chat_count: number; content: string; provider: string; fallback: boolean }>(`/coach/weekly-report?week_offset=${week_offset}`, { method: "POST" })
+  coachWeeklyReport: (week_offset: number = 0) =>
+    request<CoachWeeklyReport>(`/coach/weekly-report?week_offset=${week_offset}`, { method: "POST" }),
+  exportCoachWeeklyReportPdf: async (report: CoachWeeklyReport) => {
+    const response = await fetch(`${API_URL}/coach/weekly-report/export`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {})
+      },
+      body: JSON.stringify(report)
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "周报导出失败" }));
+      throw new Error(error.detail || "周报导出失败");
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `家长陪伴周报_${report.week_start}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  exportJournalsHtml: async () => {
+    const journals = await request<{ id: string; content: string; created_at: string }[]>("/coach/journals");
+    const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const items = journals
+      .slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map(j => {
+        const d = new Date(j.created_at);
+        const date = d.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" });
+        const time = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+        return `<article class="entry"><div class="meta"><span class="date">${escape(date)}</span><span class="time">${escape(time)}</span></div><div class="content">${escape(j.content).replace(/\n/g, "<br/>")}</div></article>`;
+      })
+      .join("\n");
+    const now = new Date().toLocaleString("zh-CN");
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><title>我的日记</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:720px;margin:0 auto;padding:32px 24px;color:#2a2a2a;background:#fafaf7;line-height:1.7}
+  header{border-bottom:1px solid #e5e0d3;padding-bottom:16px;margin-bottom:24px}
+  h1{margin:0 0 8px;font-size:24px;color:#3a3a3a}
+  .summary{color:#7a7468;font-size:14px}
+  .entry{background:#fff;border:1px solid #ece6d5;border-radius:10px;padding:16px 20px;margin-bottom:14px;box-shadow:0 1px 2px rgba(0,0,0,0.03)}
+  .meta{display:flex;justify-content:space-between;color:#8a8474;font-size:13px;margin-bottom:10px;border-bottom:1px dashed #ece6d5;padding-bottom:8px}
+  .content{white-space:pre-wrap;word-wrap:break-word}
+  footer{margin-top:32px;text-align:center;color:#aaa;font-size:12px}
+  @media print{body{background:#fff} .entry{box-shadow:none;break-inside:avoid}}
+</style></head>
+<body>
+<header><h1>我的日记</h1><div class="summary">导出时间：${escape(now)} · 共 ${journals.length} 条</div></header>
+${items || '<p style="color:#999;text-align:center">还没有日记记录</p>'}
+<footer>ABA 智能陪伴 · 由家长陪伴模块生成</footer>
+</body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `我的日记_${new Date().toISOString().slice(0,10)}.html`; a.click();
+    URL.revokeObjectURL(url);
+  }
 };

@@ -55,15 +55,15 @@ def build_aba_context(child: Child | None, recent_sessions: Iterable[TrainingSes
 
 
 def build_coach_context(moods: Iterable[MoodEntry], journals: Iterable[JournalEntry]) -> str | None:
-    """教练场景：最近 7 天情绪 + 日记摘要。"""
+    """教练场景：仅提供家长本人的近期情绪与反思，不注入孩子或 ABA 信息。"""
     mood_list = list(moods)
     journal_list = list(journals)
     if not mood_list and not journal_list:
         return None
     parts: list[str] = []
     if mood_list:
-        parts.append(f"最近 {len(mood_list)} 条情绪：" + "、".join(f"{m.mood}(强度{m.intensity})" for m in mood_list[:5]))
+        parts.append(f"用户本人最近 {len(mood_list)} 条情绪：" + "、".join(f"{m.mood}(强度{m.intensity})" for m in mood_list[:5]))
     if journal_list:
         latest = journal_list[0]
-        parts.append(f"最新日记（{latest.created_at.date()}）：{latest.content[:80]}")
+        parts.append(f"用户本人最新反思（{latest.created_at.date()}）：{latest.content[:80]}")
     return "\n".join(parts) if parts else None

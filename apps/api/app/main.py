@@ -4,15 +4,18 @@ import time
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from html import escape
 from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
+import fitz
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
@@ -21,7 +24,7 @@ from .models import AiUsage, Assessment, AuditLog, ChatMessage, Child, ExpertAss
 from .schemas import (
     AdminPasswordReset, AdminUserCreate, AssessmentOut, AssessmentSubmit, ChatAnswer, ChatOut, ChatRequest, ChildIn, ChildOut, Credentials,
     ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, RegisterCredentials, ReportOut, ReportRequest, ReorderBody, SessionIn, SessionOut, TaskIn,
-    TaskOut, TaskPatch, TokenPair, TrialIn, UserOut,
+    TaskOut, TaskPatch, TokenPair, TrialIn, UserOut, WeeklyReportExport,
 )
 from .services.assessment import questions as real_assessment_questions, score_and_tasks, skill_catalog
 from .services.ai import analyze_medical_record, crisis_response, generate
@@ -42,6 +45,7 @@ settings = get_settings()
 upload_root = Path(settings.upload_path)
 request_counts: Counter[tuple[str, str, int]] = Counter()
 request_duration_ms: Counter[tuple[str, str]] = Counter()
+MIN_TRIALS_PER_SESSION = 5
 
 
 @asynccontextmanager
@@ -84,6 +88,8 @@ async def request_context(request: Request, call_next):
     request_counts[(request.method, path, response.status_code)] += 1
     request_duration_ms[(request.method, path)] += round((time.perf_counter() - started) * 1000)
     response.headers["X-Request-ID"] = request_id
+    if request.url.path.startswith("/api/v1/"):
+        response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
@@ -172,11 +178,18 @@ def open_mobile_web():
 
 @app.post("/api/v1/auth/register", response_model=TokenPair, status_code=201)
 def register(body: RegisterCredentials, db: Session = Depends(get_db)):
-    if db.scalar(select(User).where(User.username == body.username)):
+    username = body.username.strip()
+    if len(username) < 2:
+        raise HTTPException(422, "用户名至少需要 2 个字符")
+    if db.scalar(select(User).where(User.username == username)):
         raise HTTPException(409, "用户名已存在")
-    user = User(username=body.username, password_hash=hash_password(body.password))
+    user = User(username=username, password_hash=hash_password(body.password))
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "用户名已存在")
     db.refresh(user)
     return issue_tokens(db, user)
 
@@ -396,17 +409,15 @@ def regenerate_child_avatar(child_id: str, user: User = Depends(current_user), d
 
 
 @app.get("/api/v1/child-avatars/{child_id}", include_in_schema=False)
-def child_avatar(child_id: str, db: Session = Depends(get_db)):
+def child_avatar(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     """头像静态读取：优先返回已上传 webp；缺失走卡通 SVG。"""
-    target = upload_root / "child_avatars" / f"{child_id}.webp"
+    child = owned_child(db, user, child_id)
+    target = upload_root / "child_avatars" / f"{child.id}.webp"
     if target.is_file():
-        # 注意：短缓存时间，便于上传后立刻看到
-        return FileResponse(target, media_type="image/webp", headers={"Cache-Control": "public, max-age=60"})
-    # 兜底：根据 seed 渲染 SVG
-    child = db.get(Child, child_id)
-    seed = child.avatar_seed if child else child_id
+        return FileResponse(target, media_type="image/webp", headers={"Cache-Control": "private, max-age=60"})
+    seed = child.avatar_seed or child.id
     svg = generate_avatar_svg(seed or "星")
-    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "public, max-age=60"})
+    return Response(content=svg, media_type="image/svg+xml", headers={"Cache-Control": "private, max-age=60"})
 
 
 @app.get("/api/v1/assessments/questions")
@@ -530,6 +541,104 @@ def session_out(session: TrainingSession) -> SessionOut:
     )
 
 
+def _independent_rate(sessions: list[TrainingSession]) -> int:
+    values = [trial.result for session in sessions for trial in session.trials]
+    return round(values.count("I") / len(values) * 100) if values else 0
+
+
+def _progress_insights(sessions: list[TrainingSession]) -> dict:
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    current_monday = today - timedelta(days=today.weekday())
+    weekly = []
+    for weeks_ago in range(3, -1, -1):
+        start = current_monday - timedelta(weeks=weeks_ago)
+        end = start + timedelta(days=7)
+        rows = [
+            session for session in sessions
+            if start <= session.created_at.date() < end
+        ]
+        values = [trial.result for session in rows for trial in session.trials]
+        counts = {result: values.count(result) for result in ("I", "V", "M", "P", "E")}
+        weekly.append({
+            "week_start": start.isoformat(),
+            "label": f"{start.month}/{start.day}",
+            "sessions": len(rows),
+            "trials": len(values),
+            "independent_rate": round(counts["I"] / len(values) * 100) if values else None,
+            "results": counts,
+        })
+
+    ordered = sorted(sessions, key=lambda row: row.created_at, reverse=True)
+    recent, previous = ordered[:3], ordered[3:6]
+    if len(recent) < 3 or len(previous) < 3:
+        trend = {
+            "status": "insufficient",
+            "title": "继续记录，趋势会更清楚",
+            "message": f"目前有 {len(ordered)} 次完整训练；每次至少记录 {MIN_TRIALS_PER_SESSION} 个回合，累计 6 次后可以比较趋势。",
+            "delta": None,
+            "recent_rate": _independent_rate(recent) if recent else None,
+            "previous_rate": _independent_rate(previous) if previous else None,
+            "evidence_sessions": len(ordered),
+        }
+    else:
+        recent_rate = _independent_rate(recent)
+        previous_rate = _independent_rate(previous)
+        delta = recent_rate - previous_rate
+        if delta >= 5:
+            status, title = "progress", "独立完成正在进步"
+        elif delta <= -5:
+            status, title = "regression", "独立完成可能回退"
+        else:
+            status, title = "stable", "独立完成保持稳定"
+        trend = {
+            "status": status,
+            "title": title,
+            "message": f"最近 3 次训练独立率 {recent_rate}%，此前 3 次为 {previous_rate}%。",
+            "delta": delta,
+            "recent_rate": recent_rate,
+            "previous_rate": previous_rate,
+            "evidence_sessions": 6,
+        }
+
+    recent_cutoff = today - timedelta(days=28)
+    previous_cutoff = today - timedelta(days=56)
+    skill_names = sorted({session.skill_name for session in sessions if session.created_at.date() >= previous_cutoff})
+    skills = []
+    priority = {"regression": 0, "progress": 1, "stable": 2, "insufficient": 3}
+    for skill_name in skill_names:
+        current_rows = [
+            row for row in sessions
+            if row.skill_name == skill_name and row.created_at.date() >= recent_cutoff
+        ]
+        previous_rows = [
+            row for row in sessions
+            if row.skill_name == skill_name and previous_cutoff <= row.created_at.date() < recent_cutoff
+        ]
+        current_rate = _independent_rate(current_rows) if current_rows else None
+        previous_rate = _independent_rate(previous_rows) if previous_rows else None
+        delta = current_rate - previous_rate if current_rate is not None and previous_rate is not None else None
+        if len(current_rows) < 2 or len(previous_rows) < 2:
+            status = "insufficient"
+        elif delta is not None and delta >= 5:
+            status = "progress"
+        elif delta is not None and delta <= -5:
+            status = "regression"
+        else:
+            status = "stable"
+        skills.append({
+            "skill_name": skill_name,
+            "current_rate": current_rate,
+            "previous_rate": previous_rate,
+            "delta": delta,
+            "status": status,
+            "current_sessions": len(current_rows),
+            "previous_sessions": len(previous_rows),
+        })
+    skills.sort(key=lambda item: (priority[item["status"]], -(abs(item["delta"]) if item["delta"] is not None else 0)))
+    return {"trend": trend, "weekly": weekly, "skills": skills}
+
+
 @app.get("/api/v1/training-sessions/active", response_model=SessionOut | None)
 def active_training_session(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     owned_child(db, user, child_id)
@@ -580,7 +689,9 @@ def add_trial(session_id: str, body: TrialIn, user: User = Depends(current_user)
         raise HTTPException(404, "训练会话不存在或已结束")
     db.add(Trial(session_id=session.id, result=body.result, sequence=len(session.trials) + 1))
     db.commit()
-    session = db.scalar(select(TrainingSession).options(selectinload(TrainingSession.trials)).where(TrainingSession.id == session_id))
+    session = db.scalar(select(TrainingSession).options(selectinload(TrainingSession.trials)).where(
+        TrainingSession.id == session_id, TrainingSession.user_id == user.id
+    ))
     return session_out(session)
 
 
@@ -595,7 +706,9 @@ def undo_trial(session_id: str, user: User = Depends(current_user), db: Session 
         db.delete(session.trials[-1])
         db.commit()
         db.expire_all()
-    session = db.scalar(select(TrainingSession).options(selectinload(TrainingSession.trials)).where(TrainingSession.id == session_id))
+    session = db.scalar(select(TrainingSession).options(selectinload(TrainingSession.trials)).where(
+        TrainingSession.id == session_id, TrainingSession.user_id == user.id
+    ))
     return session_out(session)
 
 
@@ -606,6 +719,8 @@ def finish_session(session_id: str, user: User = Depends(current_user), db: Sess
     ))
     if not session:
         raise HTTPException(404, "训练会话不存在")
+    if len(session.trials) < MIN_TRIALS_PER_SESSION:
+        raise HTTPException(400, f"至少记录 {MIN_TRIALS_PER_SESSION} 个回合才能完成本次训练")
     session.status = "completed"
     session.finished_at = datetime.now(timezone.utc)
     if session.task_id:
@@ -620,16 +735,20 @@ def finish_session(session_id: str, user: User = Depends(current_user), db: Sess
 @app.get("/api/v1/progress")
 def progress(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     owned_child(db, user, child_id)
-    sessions = db.scalars(select(TrainingSession).options(selectinload(TrainingSession.trials)).where(
+    all_sessions = db.scalars(select(TrainingSession).options(selectinload(TrainingSession.trials)).where(
         TrainingSession.user_id == user.id, TrainingSession.child_id == child_id,
         TrainingSession.status == "completed",
     ).order_by(TrainingSession.created_at.desc())).all()
+    sessions = [session for session in all_sessions if len(session.trials) >= MIN_TRIALS_PER_SESSION]
     items = [session_out(item) for item in sessions]
+    insights = _progress_insights(sessions)
     return {
         "completed_sessions": len(items),
         "training_days": len({item.created_at.date().isoformat() for item in items}),
         "average_percentage": round(sum(item.percentage for item in items) / len(items)) if items else 0,
+        "last_training_at": (items[0].finished_at or items[0].created_at).isoformat() if items else None,
         "timeline": items[:20],
+        **insights,
     }
 
 
@@ -845,6 +964,44 @@ def coach_weekly_report(week_offset: int = 0, user: User = Depends(current_user)
         "provider": ai_call.provider,
         "fallback": ai_call.fallback,
     }
+
+
+@app.post("/api/v1/coach/weekly-report/export")
+def export_coach_weekly_report(body: WeeklyReportExport, user: User = Depends(current_user)):
+    paragraphs = "".join(f"<p>{escape(line)}</p>" for line in body.content.splitlines() if line.strip())
+    html = f"""
+    <h1>家长陪伴周报</h1>
+    <p class="period">{escape(body.week_start)} 至 {escape(body.week_end)}</p>
+    <table>
+      <tr><td>情绪记录</td><td>{body.mood_count} 条</td></tr>
+      <tr><td>日记记录</td><td>{body.journal_count} 条</td></tr>
+      <tr><td>陪伴对话</td><td>{body.chat_count} 次</td></tr>
+    </table>
+    <h2>本周回顾</h2>
+    {paragraphs}
+    <p class="note">本报告用于个人回顾，不替代专业医疗或心理服务。</p>
+    """
+    document = fitz.open()
+    page = document.new_page(width=595, height=842)
+    page.insert_htmlbox(
+        fitz.Rect(48, 46, 547, 796),
+        html,
+        css="body{font-family:sans-serif;color:#3f382f;font-size:11pt;line-height:1.65}"
+            "h1{color:#725b42;font-size:23pt;margin-bottom:4px}"
+            "h2{color:#725b42;font-size:15pt;margin-top:22px}"
+            ".period{color:#817568;margin-top:0}"
+            "table{border-collapse:collapse;width:100%;margin:18px 0}"
+            "td{border:1px solid #ded5c9;padding:8px}"
+            ".note{color:#91887f;font-size:8pt;margin-top:28px}",
+    )
+    content = document.tobytes(garbage=4, deflate=True)
+    document.close()
+    filename = f"coach-weekly-{body.week_start}.pdf"
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/v1/coach/articles")

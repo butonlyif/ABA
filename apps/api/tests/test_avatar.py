@@ -36,9 +36,10 @@ def test_avatar_url_format():
     assert url2 == "/api/v1/child-avatars/abc-123"
 
 
-def test_avatar_static_route_returns_svg_when_no_file(client):
+def test_avatar_static_route_returns_svg_when_no_file(client, auth):
     """未上传时静态路由应返回卡通 SVG（兜底）。"""
-    response = client.get("/api/v1/child-avatars/non-existent-id")
+    cid = client.post("/api/v1/children", headers=auth, json={"name": "小测"}).json()["id"]
+    response = client.get(f"/api/v1/child-avatars/{cid}", headers=auth)
     assert response.status_code == 200
     assert "image/svg+xml" in response.headers["content-type"]
     assert "<svg" in response.text
@@ -62,7 +63,7 @@ def test_upload_remove_regenerate_flow(client, auth):
     assert body["avatar_seed"] == "小测"
 
     # 3. 静态 GET 返回 webp
-    static = client.get(f"/api/v1/child-avatars/{cid}")
+    static = client.get(f"/api/v1/child-avatars/{cid}", headers=auth)
     assert static.status_code == 200
     assert static.headers["content-type"] == "image/webp"
 
@@ -76,7 +77,7 @@ def test_upload_remove_regenerate_flow(client, auth):
     assert regen.status_code == 200
     assert regen.json()["avatar_url"] == f"/api/v1/child-avatars/{cid}"
 
-    static2 = client.get(f"/api/v1/child-avatars/{cid}")
+    static2 = client.get(f"/api/v1/child-avatars/{cid}", headers=auth)
     assert "image/svg+xml" in static2.headers["content-type"]
 
 
@@ -110,3 +111,8 @@ def test_isolation_across_users(client, auth):
     cid_a = client.post("/api/v1/children", headers={"Authorization": f"Bearer {a_token}"}, json={"name": "A娃"}).json()["id"]
     forbidden = client.delete(f"/api/v1/children/{cid_a}/avatar", headers={"Authorization": f"Bearer {b_token}"})
     assert forbidden.status_code == 404
+    assert client.get(f"/api/v1/child-avatars/{cid_a}").status_code == 401
+    assert client.get(
+        f"/api/v1/child-avatars/{cid_a}",
+        headers={"Authorization": f"Bearer {b_token}"},
+    ).status_code == 404

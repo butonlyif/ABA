@@ -187,6 +187,15 @@ class JournalOut(ORMModel):
     created_at: datetime
 
 
+class WeeklyReportExport(BaseModel):
+    week_start: str
+    week_end: str
+    mood_count: int = Field(ge=0)
+    journal_count: int = Field(ge=0)
+    chat_count: int = Field(ge=0)
+    content: str = Field(min_length=1, max_length=20000)
+
+
 class ExpertSelect(BaseModel):
     expert_id: str
 
