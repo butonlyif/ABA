@@ -143,6 +143,57 @@ def test_login_refresh_logout_token_lifecycle(client):
     ).status_code == 401
 
 
+def test_bootstrap_returns_current_user_and_children_in_one_request(client, auth):
+    first = client.post("/api/v1/children", headers=auth, json={"name": "小星"})
+    second = client.post("/api/v1/children", headers=auth, json={"name": "小月"})
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    response = client.get("/api/v1/bootstrap", headers=auth)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["user"]["username"] == "family"
+    assert payload["user"]["role"] == "user"
+    assert [child["name"] for child in payload["children"]] == ["小星", "小月"]
+
+
+def test_bootstrap_rejects_missing_or_invalid_access_token(client):
+    assert client.get("/api/v1/bootstrap").status_code == 401
+    response = client.get(
+        "/api/v1/bootstrap",
+        headers={"Authorization": "Bearer not-a-valid-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_bootstrap_does_not_return_children_for_staff_roles(client, auth):
+    from app.database import SessionLocal
+    from app.models import User
+
+    client.post("/api/v1/children", headers=auth, json={"name": "不应返回"})
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == "family").one()
+    for role in ("expert", "admin"):
+        user.role = role
+        db.commit()
+        response = client.get("/api/v1/bootstrap", headers=auth)
+        assert response.status_code == 200
+        assert response.json()["user"]["role"] == role
+        assert response.json()["children"] == []
+    db.close()
+
+
+def test_metrics_include_route_duration_quantiles(client):
+    client.get("/health")
+    metrics = client.get("/metrics")
+
+    assert metrics.status_code == 200
+    assert 'path="/health",quantile="0.5"' in metrics.text
+    assert 'path="/health",quantile="0.95"' in metrics.text
+    assert 'path="/health",quantile="0.99"' in metrics.text
+
+
 def test_registration_normalizes_username_and_reports_duplicates(client):
     created = client.post(
         "/api/v1/auth/register",

@@ -1,7 +1,7 @@
 import asyncio
 import io
 import time
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -20,10 +20,10 @@ from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine, get_db
-from .models import AiUsage, Assessment, AuditLog, ChatMessage, Child, ExpertAssignment, ExpertMessage, ExpertProfile, GrowthProgress, JournalEntry, MoodEntry, RefreshToken, Report, SystemEvent, Task, TrainingSession, Trial, User
+from .models import AiUsage, Assessment, AuditLog, ChatMessage, Child, ChildRecordFile, CoachGrowthState, ExpertAssignment, ExpertMessage, ExpertProfile, GrowthProgress, JournalEntry, MoodEntry, RefreshToken, Report, SystemEvent, Task, TrainingSession, Trial, User
 from .schemas import (
-    AdminPasswordReset, AdminUserCreate, AssessmentOut, AssessmentSubmit, ChatAnswer, ChatOut, ChatRequest, ChildIn, ChildOut, Credentials,
-    ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, RegisterCredentials, ReportOut, ReportRequest, ReorderBody, SessionIn, SessionOut, TaskIn,
+    AdminPasswordReset, AdminUserCreate, AssessmentOut, AssessmentSubmit, BootstrapOut, ChatAnswer, ChatOut, ChatRequest, ChildIn, ChildOut, ChildRecordFileOut, Credentials,
+    CoachGrowthStateIn, CoachGrowthStateOut, ExpertProfileIn, ExpertQuestion, ExpertReply, ExpertSelect, JournalIn, JournalOut, MoodIn, MoodOut, RefreshRequest, RegisterCredentials, ReportOut, ReportRequest, ReorderBody, SessionIn, SessionOut, TaskIn,
     TaskOut, TaskPatch, TokenPair, TrialIn, UserOut, WeeklyReportExport,
 )
 from .services.assessment import questions as real_assessment_questions, score_and_tasks, skill_catalog
@@ -35,6 +35,7 @@ from .services.coach_weekly import generate_weekly_summary
 from .services.context_builder import build_aba_context, build_coach_context
 from .services.rate_limit import limiter
 from .services.storage import get_storage
+from .services.retention import purge_expired_customer_data
 from .services.avatar import avatar_url_for, generate_avatar_svg
 from .security import (
     create_access_token, current_user, hash_password, random_refresh_token,
@@ -45,6 +46,9 @@ settings = get_settings()
 upload_root = Path(settings.upload_path)
 request_counts: Counter[tuple[str, str, int]] = Counter()
 request_duration_ms: Counter[tuple[str, str]] = Counter()
+request_duration_samples: defaultdict[tuple[str, str], deque[float]] = defaultdict(
+    lambda: deque(maxlen=2048)
+)
 MIN_TRIALS_PER_SESSION = 5
 
 
@@ -53,7 +57,33 @@ async def lifespan(_: FastAPI):
     settings.validate_runtime()
     if settings.environment == "development":
         Base.metadata.create_all(engine)
-    yield
+    stop_retention = asyncio.Event()
+
+    async def retention_loop():
+        while not stop_retention.is_set():
+            def run_cleanup():
+                cleanup_db = SessionLocal()
+                try:
+                    purge_expired_customer_data(cleanup_db)
+                finally:
+                    cleanup_db.close()
+
+            try:
+                await asyncio.to_thread(run_cleanup)
+            except Exception:
+                # A transient database/storage failure is retried on the next cycle.
+                pass
+            try:
+                await asyncio.wait_for(stop_retention.wait(), timeout=24 * 60 * 60)
+            except asyncio.TimeoutError:
+                continue
+
+    retention_task = asyncio.create_task(retention_loop())
+    try:
+        yield
+    finally:
+        stop_retention.set()
+        await retention_task
 
 
 app = FastAPI(title=settings.app_name, version="1.0.0", openapi_url="/api/v1/openapi.json", lifespan=lifespan)
@@ -85,8 +115,10 @@ async def request_context(request: Request, call_next):
         raise
     route = request.scope.get("route")
     path = getattr(route, "path", request.url.path)
+    duration_ms = (time.perf_counter() - started) * 1000
     request_counts[(request.method, path, response.status_code)] += 1
-    request_duration_ms[(request.method, path)] += round((time.perf_counter() - started) * 1000)
+    request_duration_ms[(request.method, path)] += duration_ms
+    request_duration_samples[(request.method, path)].append(duration_ms)
     response.headers["X-Request-ID"] = request_id
     if request.url.path.startswith("/api/v1/"):
         response.headers.setdefault("Cache-Control", "no-store")
@@ -167,6 +199,23 @@ def metrics():
     ]
     for (method, path), value in sorted(request_duration_ms.items()):
         lines.append(f'aba_http_request_duration_milliseconds_total{{method="{method}",path="{path}"}} {value}')
+    lines += [
+        "# HELP aba_http_request_duration_milliseconds Recent request duration quantiles.",
+        "# TYPE aba_http_request_duration_milliseconds gauge",
+    ]
+    for (method, path), samples in sorted(request_duration_samples.items()):
+        ordered = sorted(samples)
+        if not ordered:
+            continue
+        for quantile in (0.5, 0.95, 0.99):
+            index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * quantile)))
+            lines.append(
+                f'aba_http_request_duration_milliseconds{{method="{method}",path="{path}",'
+                f'quantile="{quantile}"}} {ordered[index]:.3f}'
+            )
+        lines.append(
+            f'aba_http_request_duration_milliseconds_count{{method="{method}",path="{path}"}} {len(ordered)}'
+        )
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
@@ -247,6 +296,16 @@ def me(user: User = Depends(current_user)):
     return user
 
 
+@app.get("/api/v1/bootstrap", response_model=BootstrapOut)
+def bootstrap(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    children = []
+    if user.role not in {"expert", "admin"}:
+        children = db.scalars(
+            select(Child).where(Child.user_id == user.id).order_by(Child.created_at)
+        ).all()
+    return BootstrapOut(user=user, children=children)
+
+
 @app.get("/api/v1/children", response_model=list[ChildOut])
 def list_children(user: User = Depends(current_user), db: Session = Depends(get_db)):
     return db.scalars(select(Child).where(Child.user_id == user.id).order_by(Child.created_at)).all()
@@ -289,7 +348,9 @@ async def import_medical_record(child_id: str, request: Request, user: User = De
 async def upload_medical_record(child_id: str, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
     """上传病例文件（txt/md/pdf），AI 分析后更新孩子状态快照。"""
     child = owned_child(db, user, child_id)
-    raw = await file.read()
+    raw = await file.read(20 * 1024 * 1024 + 1)
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(413, "文件不能超过 20MB")
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext == "pdf":
@@ -309,13 +370,93 @@ async def upload_medical_record(child_id: str, file: UploadFile = File(...), use
     if not text.strip():
         raise HTTPException(400, "无法从文件中提取文本")
     snapshot, summary = analyze_medical_record(text)
-    if snapshot:
-        from datetime import datetime
-        snapshot["updated_at"] = datetime.utcnow().isoformat()
-        child.status_snapshot = snapshot
+    suffix = f".{ext}" if ext else ""
+    file_key = f"medical_records/{user.id}/{child.id}/{uuid4()}{suffix}"
+    storage = get_storage()
+    storage.put(file_key, raw, file.content_type or "application/octet-stream")
+    record_file = ChildRecordFile(
+        user_id=user.id,
+        child_id=child.id,
+        original_name=(filename or "未命名文件")[:255],
+        file_key=file_key,
+        content_type=(file.content_type or "application/octet-stream")[:120],
+        size_bytes=len(raw),
+    )
+    try:
+        db.add(record_file)
+        if snapshot:
+            snapshot["updated_at"] = datetime.utcnow().isoformat()
+            child.status_snapshot = snapshot
         db.commit()
         db.refresh(child)
+    except Exception:
+        db.rollback()
+        storage.delete(file_key)
+        raise
     return child
+
+
+@app.get("/api/v1/children/{child_id}/record-files", response_model=list[ChildRecordFileOut])
+def list_child_record_files(child_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    owned_child(db, user, child_id)
+    return db.scalars(
+        select(ChildRecordFile).where(
+            ChildRecordFile.child_id == child_id,
+            ChildRecordFile.user_id == user.id,
+        ).order_by(ChildRecordFile.created_at.desc())
+    ).all()
+
+
+@app.get("/api/v1/children/{child_id}/record-files/{file_id}")
+def download_child_record_file(
+    child_id: str,
+    file_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    owned_child(db, user, child_id)
+    record_file = db.scalar(select(ChildRecordFile).where(
+        ChildRecordFile.id == file_id,
+        ChildRecordFile.child_id == child_id,
+        ChildRecordFile.user_id == user.id,
+    ))
+    if not record_file:
+        raise HTTPException(404, "原始文件不存在")
+    content, stored_type = get_storage().get(record_file.file_key)
+    encoded_name = quote(record_file.original_name)
+    return Response(
+        content=content,
+        media_type=record_file.content_type or stored_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}"},
+    )
+
+
+@app.delete("/api/v1/children/{child_id}/record-files/{file_id}", status_code=204)
+def delete_child_record_file(
+    child_id: str,
+    file_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    child = owned_child(db, user, child_id)
+    record_file = db.scalar(select(ChildRecordFile).where(
+        ChildRecordFile.id == file_id,
+        ChildRecordFile.child_id == child.id,
+        ChildRecordFile.user_id == user.id,
+    ))
+    if not record_file:
+        raise HTTPException(404, "原始文件不存在")
+    get_storage().delete(record_file.file_key)
+    db.delete(record_file)
+    db.add(AuditLog(
+        user_id=user.id,
+        action="child.record_file_deleted",
+        resource_type="child_record_file",
+        resource_id=record_file.id,
+        details={"child_id": child.id, "original_name": record_file.original_name},
+    ))
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.patch("/api/v1/children/{child_id}/current", response_model=ChildOut)
@@ -924,6 +1065,28 @@ def save_journal(body: JournalIn, user: User = Depends(current_user), db: Sessio
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@app.get("/api/v1/coach/growth-sessions", response_model=CoachGrowthStateOut)
+def get_growth_sessions(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    state = db.get(CoachGrowthState, user.id)
+    if state:
+        return state
+    return CoachGrowthStateOut(sessions=[], updated_at=datetime.utcnow())
+
+
+@app.put("/api/v1/coach/growth-sessions", response_model=CoachGrowthStateOut)
+def save_growth_sessions(body: CoachGrowthStateIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    state = db.get(CoachGrowthState, user.id)
+    if state:
+        state.sessions = body.sessions
+        state.updated_at = datetime.utcnow()
+    else:
+        state = CoachGrowthState(user_id=user.id, sessions=body.sessions)
+        db.add(state)
+    db.commit()
+    db.refresh(state)
+    return state
 
 
 @app.get("/api/v1/coach/growth")

@@ -10,14 +10,22 @@
   <body>
     <div id="root"></div>
     <script>
-      // Force-unregister any legacy Service Worker from vite-plugin-pwa
+      // One-time migration away from the legacy PWA worker. Do not erase caches
+      // on every visit: that turns every mobile launch into a cold start.
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(regs) {
-          regs.forEach(function(r) { r.unregister(); });
-        });
-        if (window.caches) {
-          caches.keys().then(function(keys) {
-            keys.forEach(function(k) { caches.delete(k); });
+        var migrationKey = 'aba_sw_cleanup_v1';
+        if (!localStorage.getItem(migrationKey)) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            return Promise.all(regs.map(function(r) { return r.unregister(); }));
+          }).then(function() {
+            if (!window.caches) return;
+            return caches.keys().then(function(keys) {
+              return Promise.all(keys.filter(function(k) {
+                return k.indexOf('workbox') !== -1 || k.indexOf('vite-pwa') !== -1;
+              }).map(function(k) { return caches.delete(k); }));
+            });
+          }).finally(function() {
+            localStorage.setItem(migrationKey, 'done');
           });
         }
       }
@@ -25,4 +33,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -50,6 +50,22 @@ class Child(Base):
     owner: Mapped[User] = relationship(back_populates="children")
 
 
+class ChildRecordFile(Base):
+    """A user-owned original assessment or medical record file.
+
+    These files are intentionally excluded from automatic process-data retention.
+    """
+    __tablename__ = "child_record_files"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    child_id: Mapped[str] = mapped_column(ForeignKey("children.id", ondelete="CASCADE"), index=True)
+    original_name: Mapped[str] = mapped_column(String(255))
+    file_key: Mapped[str] = mapped_column(String(500), unique=True)
+    content_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class Assessment(Base):
     __tablename__ = "assessments"
     __table_args__ = (UniqueConstraint("user_id", "idempotency_key"),)
@@ -185,6 +201,13 @@ class GrowthProgress(Base):
     stage: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="locked")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CoachGrowthState(Base):
+    __tablename__ = "coach_growth_states"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    sessions: Mapped[list] = mapped_column(JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ChatMessage(Base):

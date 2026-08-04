@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-import httpx
-
 from ..config import get_settings
+from .http_client import outbound_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +215,7 @@ def analyze_medical_record(text: str) -> tuple[dict | None, str]:
         '{"domains":{"参与技能":分数,...},"overall_level":1-5,"summary":"一句话总结"}'
     )
     try:
-        response = httpx.post(
+        response = outbound_http_client().post(
             f"{settings.minimax_base_url.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {settings.minimax_api_key}"},
             json={"model": settings.minimax_model, "messages": [
@@ -289,7 +288,7 @@ def generate(product: str, message: str, history: list[dict], context: str | Non
     messages.extend(history[-10:])
     messages.append({"role": "user", "content": message})
     try:
-        response = httpx.post(
+        response = outbound_http_client().post(
             f"{settings.minimax_base_url.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {settings.minimax_api_key}"},
             json={"model": settings.minimax_model, "messages": messages, "temperature": 0.4},

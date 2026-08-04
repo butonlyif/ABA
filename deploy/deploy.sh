@@ -92,9 +92,10 @@ rsync_ssh() {  # args: <local-glob...> <remote-dir>
 deploy_via_ssh_api() {
   echo "--- [API/SSH] 同步源码 ---"
   rsync_ssh apps/api/app/ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/apps/api/app/"
+  rsync_ssh apps/api/alembic/ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/apps/api/alembic/"
 
-  echo "--- [API/SSH] 重建镜像并重启 ---"
-  ssh_cmd "cd ${REMOTE_DIR} && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml build api 2>&1 | tail -3 && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml up -d api 2>&1 | tail -3"
+  echo "--- [API/SSH] 重建镜像、迁移并重启 ---"
+  ssh_cmd "cd ${REMOTE_DIR} && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml build api migrate 2>&1 | tail -5 && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml run --rm migrate && docker compose --project-name aba-modern --env-file deploy/modern.env -f deploy/docker-compose.modern.yml up -d api 2>&1 | tail -5"
   echo "[API] 完成"
 }
 
@@ -122,6 +123,7 @@ deploy_via_ssh_web() {
 
 deploy_via_ssh_sync_app() {
   rsync_ssh apps/api/app/ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/apps/api/app/"
+  rsync_ssh apps/api/alembic/ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/apps/api/alembic/"
 }
 
 deploy_via_ssh_upload_dist() {  # args: <mobile-dist> <admin-dist>

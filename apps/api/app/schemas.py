@@ -58,6 +58,20 @@ class ChildOut(ChildIn, ORMModel):
     created_at: datetime
 
 
+class BootstrapOut(BaseModel):
+    user: UserOut
+    children: list[ChildOut]
+
+
+class ChildRecordFileOut(ORMModel):
+    id: str
+    child_id: str
+    original_name: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
+
+
 class AssessmentSubmit(BaseModel):
     child_id: str
     answers: dict[str, int]
@@ -185,6 +199,15 @@ class JournalOut(ORMModel):
     content: str
     prompt: str | None
     created_at: datetime
+
+
+class CoachGrowthStateIn(BaseModel):
+    sessions: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
+
+
+class CoachGrowthStateOut(ORMModel):
+    sessions: list[dict[str, Any]]
+    updated_at: datetime
 
 
 class WeeklyReportExport(BaseModel):

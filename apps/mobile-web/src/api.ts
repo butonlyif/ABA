@@ -25,6 +25,15 @@ export type Child = {
   avatar_seed?: string | null;
 };
 
+export type ChildRecordFile = {
+  id: string;
+  child_id: string;
+  original_name: string;
+  content_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
 export type Task = {
   id: string;
   child_id: string;
@@ -129,6 +138,8 @@ export type ExpertProfile = {
 };
 export type ExpertMessage = { id: string; sender: "client" | "expert"; content: string; created_at: string };
 export type ExpertClient = { id: string; name: string; unread: number; latest: string };
+export type CurrentUser = { id: string; username: string; role: string };
+export type Bootstrap = { user: CurrentUser; children: Child[] };
 
 type Tokens = { access_token: string; refresh_token: string };
 
@@ -180,7 +191,8 @@ export const api = {
     request<Tokens>("/auth/register", { method: "POST", body: JSON.stringify({ username: username.trim(), password }) }),
   login: (username: string, password: string) =>
     request<Tokens>("/auth/login", { method: "POST", body: JSON.stringify({ username: username.trim(), password }) }),
-  me: () => request<{ id: string; username: string; role: string }>("/auth/me"),
+  me: () => request<CurrentUser>("/auth/me"),
+  bootstrap: () => request<Bootstrap>("/bootstrap"),
   children: () => request<Child[]>("/children"),
   createChild: (body: Partial<Child>) => request<Child>("/children", { method: "POST", body: JSON.stringify(body) }),
   setCurrentChild: (childId: string) => request<Child>(`/children/${childId}/current`, { method: "PATCH" }),
@@ -200,6 +212,27 @@ export const api = {
   },
   importRecordText: (childId: string, text: string) =>
     request<Child>(`/children/${childId}/import-record`, { method: "POST", body: JSON.stringify({ text }) }),
+  recordFiles: (childId: string) =>
+    request<ChildRecordFile[]>(`/children/${childId}/record-files`),
+  deleteRecordFile: (childId: string, fileId: string) =>
+    request<void>(`/children/${childId}/record-files/${fileId}`, { method: "DELETE" }),
+  downloadRecordFile: async (childId: string, fileId: string, filename: string) => {
+    const fetchFile = () => fetch(`${API_URL}/children/${childId}/record-files/${fileId}`, {
+      headers: tokenStore.access ? { Authorization: `Bearer ${tokenStore.access}` } : {}
+    });
+    let response = await fetchFile();
+    if (response.status === 401 && tokenStore.refresh) {
+      await request("/auth/me");
+      response = await fetchFile();
+    }
+    if (!response.ok) throw new Error("文件下载失败");
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
   uploadChildAvatar: async (childId: string, file: File) => {
     const form = new FormData();
     form.append("avatar", file);
@@ -322,7 +355,7 @@ export const api = {
     return answer;
   },
   chatMessages: (product: "aba" | "coach") =>
-    request<{ id: string; role: string; content: string; sources: { title: string }[] }[]>(`/chat/messages?product=${product}`),
+    request<{ id: string; role: string; content: string; sources: { title: string }[]; created_at: string }[]>(`/chat/messages?product=${product}`),
   clearChatMessages: (product: "aba" | "coach") =>
     request<{ deleted: number }>(`/chat/messages?product=${product}`, { method: "DELETE" }),
   exportChat: async (product: "aba" | "coach") => {
@@ -379,6 +412,8 @@ export const api = {
   saveMood: (payload: { mood: string; intensity: number; note?: string }) => request("/coach/moods", { method: "POST", body: JSON.stringify(payload) }),
   journals: () => request<{ id: string; content: string; created_at: string }[]>("/coach/journals"),
   saveJournal: (content: string) => request("/coach/journals", { method: "POST", body: JSON.stringify({ content, prompt: "今天有没有一个瞬间，你觉得自己其实做得还不错？" }) }),
+  growthSessions: () => request<{ sessions: any[]; updated_at: string }>("/coach/growth-sessions"),
+  saveGrowthSessions: (sessions: any[]) => request<{ sessions: any[]; updated_at: string }>("/coach/growth-sessions", { method: "PUT", body: JSON.stringify({ sessions }) }),
   coachArticles: (q?: string) => request<{ items: { id: string; title: string; category: string; subcategory: string; level: string; read_time: string; summary: string }[] }>(`/coach/articles${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   coachCategories: () => request<{ items: { id: string; name: string; icon: string; desc: string; color: string; count: number; children: { id: string; name: string; icon: string; desc: string; count: number }[] }[] }>("/coach/categories"),
   coachArticle: (id: string) => request<{ id: string; title: string; category: string; subcategory: string; summary: string; content: string; read_time: string; related: { id: string; title: string; subcategory: string; read_time: string }[] }>(`/coach/articles/${id}`),

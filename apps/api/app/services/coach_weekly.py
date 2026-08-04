@@ -9,9 +9,8 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
-import httpx
-
 from ..config import get_settings
+from .http_client import outbound_http_client
 from ..models import ChatMessage, JournalEntry, MoodEntry
 from .ai import AiCall, _hotlines_block  # 复用 T2 的热线块（不导出常量避免污染）
 
@@ -135,7 +134,7 @@ def generate_weekly_summary(
 
     system, user_content = _build_prompt(week_label, moods, journals, chat_count)
     try:
-        response = httpx.post(
+        response = outbound_http_client().post(
             f"{settings.minimax_base_url.rstrip('/')}/chat/completions",
             headers={"Authorization": f"Bearer {settings.minimax_api_key}"},
             json={"model": settings.minimax_model, "messages": [
