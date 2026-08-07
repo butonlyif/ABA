@@ -27,10 +27,10 @@ from .schemas import (
     TaskOut, TaskPatch, TokenPair, TrialIn, UserOut, WeeklyReportExport,
 )
 from .services.assessment import questions as real_assessment_questions, score_and_tasks, skill_catalog
-from .services.ai import analyze_medical_record, crisis_response, generate
+from .services.ai import analyze_medical_record, crisis_response, generate, detect_solution_intent, is_oskar_closing
 from .services.flashcards import card as flashcard_image, catalog as flashcard_catalog
 from .services.jobs import enqueue_report
-from .services.coach_content import article as coach_article, articles as coach_articles, categories as coach_categories, related as coach_related, search as coach_search
+from .services.coach_content import article as coach_article, articles as coach_articles, categories as coach_categories, related as coach_related, search as coach_search, issue_stages as coach_issue_stages
 from .services.coach_weekly import generate_weekly_summary
 from .services.context_builder import build_aba_context, build_coach_context
 from .services.rate_limit import limiter
@@ -1188,6 +1188,11 @@ def get_coach_article(article_id: str, user: User = Depends(current_user)):
     return item
 
 
+@app.get("/api/v1/coach/issue-stages")
+def get_coach_issue_stages(user: User = Depends(current_user)):
+    return coach_issue_stages()
+
+
 @app.post("/api/v1/coach/chat", response_model=ChatAnswer)
 def coach_chat(body: ChatRequest, user: User = Depends(current_user), db: Session = Depends(get_db)):
     history_rows = db.scalars(select(ChatMessage).where(
@@ -1200,10 +1205,18 @@ def coach_chat(body: ChatRequest, user: User = Depends(current_user), db: Sessio
         JournalEntry.user_id == user.id,
     ).order_by(JournalEntry.created_at.desc()).limit(3)).all()
     context = build_coach_context(recent_moods, recent_journals)
-    answer, _, ai_call = generate("coach", body.message, [{"role": row.role, "content": row.content} for row in history_rows], context)
+    # OSKAR 会话状态：从最近一条 assistant 消息的 sources 字段读取是否仍在 OSKAR 流程中
+    oskar_active = False
+    for row in reversed(history_rows):
+        if row.role == "assistant":
+            oskar_active = any(s.get("oskar") for s in (row.sources or []))
+            break
+    oskar_on = (oskar_active or detect_solution_intent(body.message)) and not is_oskar_closing(body.message)
+    answer, _, ai_call = generate("coach", body.message, [{"role": row.role, "content": row.content} for row in history_rows], context, oskar_active=oskar_on)
+    assistant_sources = [{"oskar": True}] if oskar_on else []
     db.add_all([
         ChatMessage(user_id=user.id, product="coach", role="user", content=body.message),
-        ChatMessage(user_id=user.id, product="coach", role="assistant", content=answer),
+        ChatMessage(user_id=user.id, product="coach", role="assistant", content=answer, sources=assistant_sources),
     ])
     add_ai_usage(db, user, "coach", ai_call)
     db.commit()

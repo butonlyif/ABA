@@ -1,0 +1,21 @@
+[project]
+name = "platform-shared"
+version = "0.1.0"
+description = "ABA 与 Coach 共享层：认证、数据库基座、共享模型与服务"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "pydantic-settings",
+    "sqlalchemy",
+    "argon2-cffi",
+    "python-jose[cryptography]",
+    "httpx",
+    "boto3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["platform_shared*"]

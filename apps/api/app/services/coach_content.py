@@ -95,3 +95,11 @@ def categories() -> list[dict]:
             "count": len(by_cat[cat_id]), "children": children,
         })
     return result
+
+
+def issue_stages() -> dict:
+    """返回 ISSUE_STAGES_TEMPLATES + TASK_ACTIONS，供前端渲染成长路径。"""
+    _legacy_root()
+    from coach.coach_content import ISSUE_STAGES_TEMPLATES, TASK_ACTIONS
+    # 只返回有 stages 的议题，序列化为纯 dict
+    return {"issues": ISSUE_STAGES_TEMPLATES, "task_actions": TASK_ACTIONS}

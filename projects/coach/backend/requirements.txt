@@ -1,0 +1,13 @@
+platform-shared @ file://../../../packages/shared
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic-settings
+argon2-cffi
+python-jose[cryptography]
+httpx
+boto3
+Pillow
+PyMuPDF
+python-multipart
+PyYAML

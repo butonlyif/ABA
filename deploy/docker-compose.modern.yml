@@ -1,25 +1,26 @@
 services:
-  web:
+  # ─── ABA 产品线 ────────────────────────────────
+  aba-web:
     build:
       context: ..
-      dockerfile: apps/mobile-web/Dockerfile
+      dockerfile: projects/aba/frontend/Dockerfile
     ports:
       - "8080:80"
     depends_on:
-      api:
+      aba-api:
         condition: service_healthy
 
-  api:
+  aba-api:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: projects/aba/backend/Dockerfile
     environment:
       ABA_ENVIRONMENT: production
       ABA_DATABASE_URL: postgresql+psycopg://aba:${POSTGRES_PASSWORD}@postgres:5432/aba
       ABA_JWT_SECRET: ${ABA_JWT_SECRET}
       ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8080}
       ABA_MINIMAX_API_KEY: ${ABA_MINIMAX_API_KEY}
-      ABA_FLASHCARD_ASSET_ROOT: /app/assets
+      ABA_KNOWLEDGE_PATH: projects/aba/knowledge
       ABA_UPLOAD_PATH: /app/uploads
       ABA_REDIS_URL: redis://redis:6379/0
       ABA_STORAGE_BACKEND: s3
@@ -28,8 +29,6 @@ services:
       ABA_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       ABA_S3_BUCKET: aba-reports
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
       minio-init:
@@ -40,14 +39,12 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - ../src/aba:/app/assets:ro
       - uploads_data:/app/uploads
-      - flashcard_cache:/app/legacy/data/flashcard_cache
 
-  worker:
+  aba-worker:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: projects/aba/backend/Dockerfile
     command: python -m app.worker
     environment:
       ABA_ENVIRONMENT: production
@@ -60,26 +57,51 @@ services:
       ABA_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       ABA_S3_BUCKET: aba-reports
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
 
-  migrate:
+  # ─── Coach 产品线 ──────────────────────────────
+  coach-web:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
-    command: alembic upgrade head
+      dockerfile: projects/coach/frontend/Dockerfile
+    ports:
+      - "8081:80"
+    depends_on:
+      coach-api:
+        condition: service_healthy
+
+  coach-api:
+    build:
+      context: ..
+      dockerfile: projects/coach/backend/Dockerfile
     environment:
       ABA_ENVIRONMENT: production
       ABA_DATABASE_URL: postgresql+psycopg://aba:${POSTGRES_PASSWORD}@postgres:5432/aba
       ABA_JWT_SECRET: ${ABA_JWT_SECRET}
+      ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8081}
+      ABA_MINIMAX_API_KEY: ${ABA_MINIMAX_API_KEY}
+      ABA_KNOWLEDGE_PATH: projects/coach/knowledge
+      ABA_REDIS_URL: redis://redis:6379/0
+      ABA_STORAGE_BACKEND: s3
+      ABA_S3_ENDPOINT_URL: http://minio:9000
+      ABA_S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      ABA_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      ABA_S3_BUCKET: aba-reports
     depends_on:
-      postgres:
+      redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
+  # ─── 共享基础设施 ──────────────────────────────
   postgres:
     image: postgres:17-alpine
     environment:
@@ -135,4 +157,3 @@ volumes:
   redis_data:
   uploads_data:
   object_data:
-  flashcard_cache:

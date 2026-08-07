@@ -163,7 +163,8 @@ function parseMoodDetail(note: string | null | undefined): MoodDetail | null {
   return null;
 }
 
-function Auth({ mode, setMode, onDone }: { mode: ProductMode; setMode: (mode: ProductMode) => void; onDone: () => void }) {
+function Auth({ onDone }: { onDone: () => void }) {
+  const [mode, setMode] = useState<ProductMode>("aba");
   const [signup, setSignup] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -1940,7 +1941,6 @@ function NetworkStatus() {
 
 function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(api.tokenStore.access || api.tokenStore.refresh));
-  const [mode, setMode] = useState<ProductMode>(() => (localStorage.getItem("aba_product_mode") as ProductMode) || "aba");
   const [tab, setTab] = useState<Tab>("home");
   const { data: bootstrap, isError } = useQuery({
     queryKey: ["bootstrap"],
@@ -1951,30 +1951,25 @@ function App() {
   const user = bootstrap?.user;
   const children = bootstrap?.children ?? [];
   const child = useMemo(() => children.find(item => item.is_current) || children[0], [children]);
-  const chooseMode = (next: ProductMode) => {
-    setMode(next);
-    localStorage.setItem("aba_product_mode", next);
-  };
   const logout = () => {
     api.tokenStore.clear();
     queryClient.clear();
     setAuthenticated(false);
   };
-  if (!authenticated || isError) return <Auth mode={mode} setMode={chooseMode} onDone={() => {
+  if (!authenticated || isError) return <Auth onDone={() => {
     queryClient.clear();
     setAuthenticated(true);
   }} />;
   if (!user) return <main className="loading"><RefreshCw/> 正在准备家庭空间…</main>;
   if (user.role === "expert") return <ExpertApp username={user.username} logout={logout}/>;
   if (user.role === "admin") return <main className="auth"><div className="brand-mark"><ShieldCheck/></div><p className="eyebrow">管理员账户</p><h1>请进入系统管理后台</h1><p className="muted">管理员与家长、专家工作空间已完全分开。</p><button className="primary" onClick={() => location.href = "/admin/"}>打开管理后台</button><button className="danger" onClick={logout}>退出登录</button></main>;
-  if (mode === "coach") return <CoachApp username={user.username} switchToAba={() => chooseMode("aba")} logout={logout} />;
   if (!child) return <main className="shell"><EmptyChild done={() => setTab("home")} /></main>;
   const content = {
     home: <HomePage child={child} go={setTab}/>,
     child: <ChildPage child={child}/>,
     training: <TrainingPage child={child}/>,
     progress: <ProgressPage child={child}/>,
-    me: <MePage username={user.username} child={child} switchToCoach={() => chooseMode("coach")} logout={logout}/>
+    me: <MePage username={user.username} child={child} logout={logout}/>
   }[tab];
   const nav = [
     ["home", "首页", Home], ["child", "孩子", Baby], ["training", "训练", Target],

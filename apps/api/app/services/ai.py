@@ -121,8 +121,77 @@ def crisis_response(message: str, product: str = "aba") -> str | None:
         "你提到的状况让我有些担心。当行为或情绪激烈到这个程度，专业的现场支持会比自助更有效：\n\n"
         f"{_hotlines_block()}\n\n"
         "建议同时联系孩子的行为分析师或心理专业人员评估下一步。"
-        "在此之前，可以先把环境调整到更安全、刺激更少的状态。"
+        "在此之前，可以先把环境调整到更安全、更少刺激的状态。"
     )
+
+
+# ====================================
+# OSKAR 方案聚焦意图检测（coach 专用）
+# ====================================
+# 当用户主动求助/要方法时，在 ACT 情绪陪伴之上衔接 SF 方案引导。
+# 安全分流已拦截 HIGH/EMERGENCY，此处只处理低中风险。
+
+_SOLUTION_SEEKING_KEYWORDS = [
+    "怎么办", "该怎么办", "我该怎么做", "怎么处理",
+    "有什么办法", "有没有办法", "有什么方法", "有什么好办法",
+    "教教我", "告诉我怎么做", "告诉我怎么",
+    "我想改变", "想改变", "想解决", "想突破",
+    "有什么建议", "给个建议", "给点建议", "帮我出出主意", "求支招",
+    "不知道怎么办", "不知道该怎么办", "不知道怎么",
+    "怎么才能", "怎样才能", "怎样能",
+    "怎么破", "怎么搞定", "怎么做",
+]
+
+# 否定信号：用户明确只想倾诉、不要方案，或已经得到答案
+_VENTING_ONLY_KEYWORDS = [
+    "不用给建议", "不用建议", "不用你帮", "不用帮我",
+    "只是想说说", "只想说说", "只是想倾诉", "只想倾诉",
+    "听着就好", "你听就好", "不用解决", "不需要建议",
+    "我知道该怎么做了", "我知道怎么做了", "我知道该怎么做",
+    "已经知道了", "已经解决了", "没问题了", "搞定了",
+]
+
+
+def detect_solution_intent(message: str) -> bool:
+    """检测用户是否在主动寻求解决方案/方法（而非单纯倾诉情绪）。"""
+    if not message:
+        return False
+    if any(kw in message for kw in _VENTING_ONLY_KEYWORDS):
+        return False
+    return any(kw in message for kw in _SOLUTION_SEEKING_KEYWORDS)
+
+
+# OSKAR 关闭信号：用户明确表示已得到答案、流程可以结束
+_OSKAR_CLOSING_KEYWORDS = [
+    "我知道该怎么做了", "我知道怎么做了", "我知道该怎么做",
+    "已经知道了", "已经解决了", "没问题了", "搞定了",
+]
+
+
+def is_oskar_closing(message: str) -> bool:
+    """检测用户是否明确表示 OSKAR 流程可以结束。"""
+    if not message:
+        return False
+    return any(kw in message for kw in _OSKAR_CLOSING_KEYWORDS)
+
+
+# OSKAR 方案聚焦 prompt 段（用户主动求方案时，追加到 ACT system prompt 之后）
+OSKAR_COACH_PROMPT = (
+
+    "\n\n当用户主动寻求方法、想往前走一步时，切换到「解决方案聚焦（Solutions Focus）」模式，"
+    "用 OSKAR 框架一步步引导（源自 The Solutions Focus）：\n"
+    "O — Outcome（成果）：用户想要什么？假如一夜之间事情变好了，明天早上会先注意到什么不同？\n"
+    "S — Scaling（量尺）：0–10，现在大概在几？是什么让你到了这个数，而不是 0？\n"
+    "K — Know-how（资源）：这个理想状态，什么时候已经发生过，哪怕一点点？那一次你做了什么？\n"
+    "A — Affirm & Action（肯定与行动）：先肯定已有资源，再邀请用户选「上升一分」的最小一步。\n"
+    "R — Review（回顾）：什么变好了？你做了什么带来这个改变？\n\n"
+    "OSKAR 模式的关键规则：\n"
+    "- 根据对话历史判断用户当前处在 OSKAR 的哪一步，每次只推进一个字母、只问一个问题。\n"
+    "- 永远先肯定已有资源（哪怕很小），再问下一步。\n"
+    "- 「下一步/小行动」必须由用户自己说，你不替他决定、不列任务清单。\n"
+    "- 核心追问永远是「什么变好了？」，哪怕是偶然的进步也要抓住放大。\n"
+    "- 如果用户回到强烈情绪，先回到共情陪伴，OSKAR 进度自然暂停、不丢失。"
+)
 
 
 @dataclass
@@ -180,6 +249,12 @@ def retrieve(message: str, limit: int = 3) -> list[dict[str, str]]:
 
 def fallback_answer(product: str, message: str, sources: list[dict[str, str]]) -> str:
     if product == "coach":
+        if detect_solution_intent(message):
+            return (
+                "我听到你想往前走一步。我们慢慢来——先想一个画面："
+                "假如一夜之间这件事变好了，明天早上你会先注意到什么不同？"
+                "不用想得很完美，哪怕一个小细节也好。"
+            )
         return (
             "我在听。这里不用急着解释清楚，也不用马上解决它。"
             "可以先留意一下：当这个念头出现时，你的身体哪里最紧？"
@@ -240,7 +315,7 @@ def analyze_medical_record(text: str) -> tuple[dict | None, str]:
         return None, f"病例分析失败：{type(exc).__name__}"
 
 
-def generate(product: str, message: str, history: list[dict], context: str | None = None) -> tuple[str, list[dict[str, str]], AiCall]:
+def generate(product: str, message: str, history: list[dict], context: str | None = None, oskar_active: bool = False) -> tuple[str, list[dict[str, str]], AiCall]:
     started = time.perf_counter()
     settings = get_settings()
     risk = crisis_response(message, product)
@@ -267,6 +342,9 @@ def generate(product: str, message: str, history: list[dict], context: str | Non
             "不做医学诊断，不替代心理治疗。"
         )
     )
+    # OSKAR 方案聚焦：用户主动求方案或已在 OSKAR 流程中时，追加 SF 引导段
+    if product == "coach" and (oskar_active or detect_solution_intent(message)):
+        system += OSKAR_COACH_PROMPT
     # T8：注入用户上下文（孩子档案/训练摘要/情绪趋势等），让 AI 记得用户情况
     if context and product == "aba":
         system += (
