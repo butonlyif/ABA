@@ -1340,6 +1340,36 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
   const [showAllActHistory, setShowAllActHistory] = useState(false);
   const [newProblem, setNewProblem] = useState("");
   const [actMode, setActMode] = useState<ActMode>("quick");
+  // Growth 成长方法选择
+  type GrowthModality = "act" | "oskar" | "ifs" | "cbt" | "dbt";
+  const [growthModality, setGrowthModality] = useState<GrowthModality | null>(null);
+  // 方法卡片定义
+  const MODALITY_CARDS: { id: GrowthModality; name: string; icon: string; desc: string; color: string; bg: string; tag: string }[] = [
+    { id: "act", name: "ACT 接纳承诺", icon: "🧘", desc: "接纳情绪，与念头拉开距离，从紧绷回到可选择的状态", color: "#C4884D", bg: "#fdf6ed", tag: "情绪接纳" },
+    { id: "oskar", name: "OSKAR 方案聚焦", icon: "🎯", desc: "聚焦想要的未来，找到你已经有的筹码，选一小步往前走", color: "#5B9BD5", bg: "#edf5fc", tag: "行动导向" },
+    { id: "ifs", name: "IFS 内在对话", icon: "🧩", desc: "倾听内在不同「部分」的声音，理解它们的意图，找到内在平衡", color: "#7B68AE", bg: "#f5f2fa", tag: "部分工作" },
+    { id: "cbt", name: "CBT 认知练习", icon: "🧠", desc: "识别自动思维，检验它是不是真的，用更灵活的想法替代它", color: "#5A9E6F", bg: "#edf6f0", tag: "思维重塑" },
+    { id: "dbt", name: "DBT 辩证行为", icon: "⚖️", desc: "在接纳与改变之间找到平衡，练习痛苦耐受和情绪调节技能", color: "#6B8E9B", bg: "#edf2f5", tag: "辩证平衡" },
+  ];
+  const getModalityStatus = (id: GrowthModality): { label: string; active: boolean } => {
+    if (id === "act") {
+      if (pendingAction) return { label: "行动卡待尝试", active: true };
+      if (activeSessionId) return { label: "进行中", active: true };
+      const inProgress = sortedSessions.find(s => s.status !== "completed");
+      if (inProgress) return { label: `进行中 ${ACT_STEPS.filter(st => inProgress.steps[st.key].completedAt).length}/${inProgress.mode === "quick" ? 3 : ACT_STEPS.length}`, active: true };
+      if (sortedSessions.filter(s => s.status === "completed").length > 0) return { label: `已完成 ${sortedSessions.filter(s => s.status === "completed").length} 次`, active: false };
+      return { label: "未开始", active: false };
+    }
+    if (id === "oskar") {
+      if (pendingOskarAction) return { label: "行动卡待尝试", active: true };
+      if (activeOskarId) return { label: "进行中", active: true };
+      const inProgress = sortedOskarSessions.find(s => s.status === "in_progress");
+      if (inProgress) return { label: `进行中 ${OSKAR_STEPS.filter(st => inProgress.steps[st.key].completedAt).length}/${OSKAR_STEPS.length}`, active: true };
+      if (sortedOskarSessions.filter(s => s.status === "completed").length > 0) return { label: `已完成 ${sortedOskarSessions.filter(s => s.status === "completed").length} 次`, active: false };
+      return { label: "未开始", active: false };
+    }
+    return { label: "即将上线", active: false };
+  };
   // 知识库：视图模式（"tree"=分类树首屏 / "list"=文章列表）、搜索、选中的分类/子分类
   const [activeCategory, setActiveCategory] = useState<string>("全部");
   const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
@@ -1861,96 +1891,101 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
         </div>
       </>;
     })(),
-    growth: activeSession ? <section className="card act-session">{renderActSessionDetail(activeSession)}</section> : <>
-      {pendingAction && pendingAction.actionPlan && <section className="pending-action-section">
-        <div className="pending-action-heading"><div><p className="eyebrow">正在进行的行动</p><h2>{pendingAction.problem}</h2></div><button className="text-button" onClick={() => setActiveSessionId(pendingAction.id)}>查看过程</button></div>
-        <ActActionCard
-          session={pendingAction}
-          onStatus={(status, obstacle = "") => updateSession(pendingAction.id, s => ({
-            ...s,
-            actionPlan: s.actionPlan ? { ...s.actionPlan, status, obstacle, updatedAt: new Date().toISOString() } : null,
-          }))}
-          onRestart={() => restartSession(pendingAction.id)}
-        />
-        {pendingAction.actionPlan.status !== "planned" && <ActResultForm
-          session={pendingAction}
-          onSave={(solved, note) => updateSession(pendingAction.id, s => ({
-            ...s,
-            resolution: { solved, note, updatedAt: new Date().toISOString() },
-            status: "completed"
-          }))}
-        />}
-      </section>}
-      <section className="growth-explainer">
-        <div>
-          <span>这里能帮你做什么？</span>
-          <h2>不是逼自己想开，而是从“被问题困住”回到“我可以选择”</h2>
-          <p>适合脑子反复想、情绪放不下，或知道该做什么却迟迟动不了的时候。</p>
-        </div>
-        <details>
-          <summary>了解练习如何进行</summary>
-          <ol>
-            <li><b>1</b><span><strong>说清卡点</strong><small>先把最困扰你的那件事放下来</small></span></li>
-            <li><b>2</b><span><strong>拉开距离</strong><small>看见念头和感受，不急着被它推着走</small></span></li>
-            <li><b>3</b><span><strong>带走一步</strong><small>最后得到一个现实可做的小行动</small></span></li>
-          </ol>
-        </details>
-      </section>
-      <section className="card act-intake">
-        <h3 className="coach-section-head">选一件此刻最卡住你的事</h3>
-        <div className="act-intake-section">
-          <div className="act-intake-label"><b>1</b><span><strong>写下这件事</strong><small>一句话就够，不用先分析原因</small></span></div>
-          <textarea value={newProblem} onChange={e => setNewProblem(e.target.value)} placeholder="例如：和家人有分歧，我不知道该怎么开口。" rows={3}/>
-          <details className="growth-example-details">
-            <summary>不知道怎么写？查看 4 个参考例子</summary>
-            <div className="growth-examples">
-              {[
-                "一想到明天要处理的事，我就开始紧张",
-                "我总觉得自己做得不够好",
-                "和家人有分歧，我不知道该怎么开口",
-                "我想休息一下，却一直有负罪感",
-              ].map(example => <button className={newProblem === example ? "selected" : ""} onClick={() => setNewProblem(example)} key={example}>{example}</button>)}
-            </div>
-          </details>
-        </div>
-        <div className="act-intake-section">
-          <div className="act-intake-label"><b>2</b><span><strong>选择练习方式</strong><small>这是流程选择，不是问题示例</small></span></div>
-          <div className="act-mode-picker">
-            <button className={actMode === "quick" ? "selected" : ""} onClick={() => setActMode("quick")}><strong>先做 2 分钟</strong><small>走 3 个关键步骤，快速理出下一步</small></button>
-            <button className={actMode === "full" ? "selected" : ""} onClick={() => setActMode("full")}><strong>慢慢梳理一次</strong><small>完整走过 6 步，适合反复卡住的事</small></button>
+    growth: (() => {
+      if (activeSession) return <section className="card act-session">{renderActSessionDetail(activeSession)}</section>;
+      if (activeOskarSession) return <section className="card act-session">{renderOskarSessionDetail(activeOskarSession)}</section>;
+      if (growthModality === "act") return <>
+        <div className="modality-back" onClick={() => { setGrowthModality(null); setActiveSessionId(null); }}>← 返回方法列表</div>
+        {pendingAction && pendingAction.actionPlan && <section className="pending-action-section">
+          <div className="pending-action-heading"><div><p className="eyebrow">正在进行的行动</p><h2>{pendingAction.problem}</h2></div><button className="text-button" onClick={() => setActiveSessionId(pendingAction.id)}>查看过程</button></div>
+          <ActActionCard
+            session={pendingAction}
+            onStatus={(status, obstacle = "") => updateSession(pendingAction.id, s => ({
+              ...s,
+              actionPlan: s.actionPlan ? { ...s.actionPlan, status, obstacle, updatedAt: new Date().toISOString() } : null,
+            }))}
+            onRestart={() => restartSession(pendingAction.id)}
+          />
+          {pendingAction.actionPlan.status !== "planned" && <ActResultForm
+            session={pendingAction}
+            onSave={(solved, note) => updateSession(pendingAction.id, s => ({
+              ...s,
+              resolution: { solved, note, updatedAt: new Date().toISOString() },
+              status: "completed"
+            }))}
+          />}
+        </section>}
+        <section className="growth-explainer">
+          <div>
+            <span>这里能帮你做什么？</span>
+            <h2>不是逼自己想开，而是从"被问题困住"回到"我可以选择"</h2>
+            <p>适合脑子反复想、情绪放不下，或知道该做什么却迟迟动不了的时候。</p>
           </div>
-        </div>
-        <button className="primary" disabled={!newProblem.trim()} onClick={startNewSession}>开始{actMode === "quick" ? "快速练习" : "完整练习"}</button>
-      </section>
-      <h3 className="coach-section-head">过往问题（{sortedSessions.length}）</h3>
-      {sortedSessions.length === 0 ? <p className="muted small">发起第一个问题后，会按时间倒序保存在这里。</p> :
-        <div className="act-history">{sortedSessions.slice(0, showAllActHistory ? sortedSessions.length : 3).map(session => {
-          const completedCount = ACT_STEPS.filter(step => session.steps[step.key].completedAt).length;
-          return <article key={session.id} className={`act-history-item ${session.status}`}>
-            <button className="act-history-open" onClick={() => setActiveSessionId(session.id)}>
-              <div className="act-history-head">
-                <strong>{session.problem}</strong>
-                <small>{new Date(session.updatedAt).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}</small>
+          <details>
+            <summary>了解练习如何进行</summary>
+            <ol>
+              <li><b>1</b><span><strong>说清卡点</strong><small>先把最困扰你的那件事放下来</small></span></li>
+              <li><b>2</b><span><strong>拉开距离</strong><small>看见念头和感受，不急着被它推着走</small></span></li>
+              <li><b>3</b><span><strong>带走一步</strong><small>最后得到一个现实可做的小行动</small></span></li>
+            </ol>
+          </details>
+        </section>
+        <section className="card act-intake">
+          <h3 className="coach-section-head">选一件此刻最卡住你的事</h3>
+          <div className="act-intake-section">
+            <div className="act-intake-label"><b>1</b><span><strong>写下这件事</strong><small>一句话就够，不用先分析原因</small></span></div>
+            <textarea value={newProblem} onChange={e => setNewProblem(e.target.value)} placeholder="例如：和家人有分歧，我不知道该怎么开口。" rows={3}/>
+            <details className="growth-example-details">
+              <summary>不知道怎么写？查看 4 个参考例子</summary>
+              <div className="growth-examples">
+                {[
+                  "一想到明天要处理的事，我就开始紧张",
+                  "我总觉得自己做得不够好",
+                  "和家人有分歧，我不知道该怎么开口",
+                  "我想休息一下，却一直有负罪感",
+                ].map(example => <button className={newProblem === example ? "selected" : ""} onClick={() => setNewProblem(example)} key={example}>{example}</button>)}
               </div>
-              <p className="muted small">
-                {session.actionPlan
-                  ? session.resolution.updatedAt
-                    ? `行动卡 · 已结束 · ${session.resolution.solved ? "有帮助" : "未达到预期"}`
-                    : `行动卡 · ${{ planned: "待尝试", tried: "待提交结果", completed: "待提交结果", blocked: "待调整或提交结果" }[session.actionPlan.status]}`
-                  : session.status === "completed" ? "已完成旧版练习" : `进行中 ${completedCount}/${session.mode === "quick" ? 3 : ACT_STEPS.length}`}
-              </p>
-            </button>
-            <button className="act-history-delete" aria-label={`删除问题：${session.problem}`} onClick={() => {
-              if (confirm(`确定删除“${session.problem}”吗？删除后无法恢复。`)) deleteSession(session.id);
-            }}>删除</button>
-          </article>;
-        })}
-        {sortedSessions.length > 3 && <button className="act-history-more" onClick={() => setShowAllActHistory(!showAllActHistory)}>
-          {showAllActHistory ? "收起较早问题" : `展开其余 ${sortedSessions.length - 3} 个问题`}
-        </button>}
-        </div>}
-      {/* ─── OSKAR 解决方案聚焦 ─── */}
-      {activeOskarSession ? <section className="card act-session">{renderOskarSessionDetail(activeOskarSession)}</section> : <>
+            </details>
+          </div>
+          <div className="act-intake-section">
+            <div className="act-intake-label"><b>2</b><span><strong>选择练习方式</strong><small>这是流程选择，不是问题示例</small></span></div>
+            <div className="act-mode-picker">
+              <button className={actMode === "quick" ? "selected" : ""} onClick={() => setActMode("quick")}><strong>先做 2 分钟</strong><small>走 3 个关键步骤，快速理出下一步</small></button>
+              <button className={actMode === "full" ? "selected" : ""} onClick={() => setActMode("full")}><strong>慢慢梳理一次</strong><small>完整走过 6 步，适合反复卡住的事</small></button>
+            </div>
+          </div>
+          <button className="primary" disabled={!newProblem.trim()} onClick={startNewSession}>开始{actMode === "quick" ? "快速练习" : "完整练习"}</button>
+        </section>
+        <h3 className="coach-section-head">过往问题（{sortedSessions.length}）</h3>
+        {sortedSessions.length === 0 ? <p className="muted small">发起第一个问题后，会按时间倒序保存在这里。</p> :
+          <div className="act-history">{sortedSessions.slice(0, showAllActHistory ? sortedSessions.length : 3).map(session => {
+            const completedCount = ACT_STEPS.filter(step => session.steps[step.key].completedAt).length;
+            return <article key={session.id} className={`act-history-item ${session.status}`}>
+              <button className="act-history-open" onClick={() => setActiveSessionId(session.id)}>
+                <div className="act-history-head">
+                  <strong>{session.problem}</strong>
+                  <small>{new Date(session.updatedAt).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}</small>
+                </div>
+                <p className="muted small">
+                  {session.actionPlan
+                    ? session.resolution.updatedAt
+                      ? `行动卡 · 已结束 · ${session.resolution.solved ? "有帮助" : "未达到预期"}`
+                      : `行动卡 · ${{ planned: "待尝试", tried: "待提交结果", completed: "待提交结果", blocked: "待调整或提交结果" }[session.actionPlan.status]}`
+                    : session.status === "completed" ? "已完成旧版练习" : `进行中 ${completedCount}/${session.mode === "quick" ? 3 : ACT_STEPS.length}`}
+                </p>
+              </button>
+              <button className="act-history-delete" aria-label={`删除问题：${session.problem}`} onClick={() => {
+                if (confirm(`确定删除"${session.problem}"吗？删除后无法恢复。`)) deleteSession(session.id);
+              }}>删除</button>
+            </article>;
+          })}
+          {sortedSessions.length > 3 && <button className="act-history-more" onClick={() => setShowAllActHistory(!showAllActHistory)}>
+            {showAllActHistory ? "收起较早问题" : `展开其余 ${sortedSessions.length - 3} 个问题`}
+          </button>}
+          </div>}
+      </>;
+      if (growthModality === "oskar") return <>
+        <div className="modality-back" onClick={() => { setGrowthModality(null); setActiveOskarId(null); }}>← 返回方法列表</div>
         {pendingOskarAction && pendingOskarAction.smallAction && <section className="pending-action-section">
           <div className="pending-action-heading"><div><p className="eyebrow">待尝试的一小步（OSKAR）</p><h2>{pendingOskarAction.topic}</h2></div><button className="text-button" onClick={() => setActiveOskarId(pendingOskarAction.id)}>查看过程</button></div>
           <OskarActionCard
@@ -1964,7 +1999,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
           />
         </section>}
         <section className="card act-intake">
-          <h3 className="coach-section-head">🎯 走出卡点 · OSKAR 自助引导</h3>
+          <h3 className="coach-section-head">走出卡点 · OSKAR 自助引导</h3>
           <p className="muted small" style={{ marginBottom: 12 }}>ACT 帮你拉开距离。当你想往前走一步时，用 OSKAR 五步指引自己从"想要的"走到"一小步"。</p>
           <div className="act-intake-section">
             <div className="act-intake-label"><b>1</b><span><strong>你此刻想改变什么？</strong><small>一句话就够，聚焦你"想要的"而非"不想要的"</small></span></div>
@@ -1991,8 +2026,64 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
             </article>;
           })}</div>
         </>}
-      </>}
-    </>,
+      </>;
+      if (growthModality) return <>
+        <div className="modality-back" onClick={() => setGrowthModality(null)}>← 返回方法列表</div>
+        <section className="card" style={{ textAlign: "center", padding: "40px 20px" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>{MODALITY_CARDS.find(m => m.id === growthModality)?.icon}</div>
+          <h3 style={{ color: MODALITY_CARDS.find(m => m.id === growthModality)?.color }}>{MODALITY_CARDS.find(m => m.id === growthModality)?.name}</h3>
+          <p className="muted" style={{ marginTop: 8 }}>该练习正在开发中，敬请期待。</p>
+        </section>
+      </>;
+      const activeMod = ["act", "oskar"].find(id => getModalityStatus(id as GrowthModality).active);
+      return <>
+        {activeMod && (() => {
+          const mod = MODALITY_CARDS.find(m => m.id === activeMod)!;
+          const st = getModalityStatus(activeMod as GrowthModality);
+          return <div className="growth-recommend" style={{ borderColor: mod.color, background: mod.bg }} onClick={() => setGrowthModality(activeMod as GrowthModality)}>
+            <span className="growth-recommend-badge" style={{ background: mod.color }}>继续练习</span>
+            <span className="growth-recommend-icon">{mod.icon}</span>
+            <div>
+              <strong>{mod.name}</strong>
+              <small>{st.label} — 点击继续</small>
+            </div>
+          </div>;
+        })()}
+        <section className="growth-explainer">
+          <div>
+            <span>成长工具箱</span>
+            <h2>选一个适合你此刻状态的方法</h2>
+            <p>每一种方法都是不同的钥匙。有时候你需要先被理解，有时候你需要一条路。</p>
+          </div>
+        </section>
+        <div className="modality-gallery">
+          {MODALITY_CARDS.map(mod => {
+            const st = getModalityStatus(mod.id);
+            return (
+              <button key={mod.id} className={`modality-card ${st.active ? "active" : ""}`} style={{ "--mod-color": mod.color, "--mod-bg": mod.bg } as React.CSSProperties} onClick={() => setGrowthModality(mod.id)}>
+                <div className="modality-card-icon" style={{ background: mod.bg }}>{mod.icon}</div>
+                <div className="modality-card-body">
+                  <div className="modality-card-head">
+                    <span className="modality-card-name" style={{ color: mod.color }}>{mod.name}</span>
+                    <span className={`modality-card-tag ${st.active ? "pulse" : ""}`} style={{ background: st.active ? mod.color : "#e8e2d8", color: st.active ? "white" : "#8b7e6e" }}>{st.label}</span>
+                  </div>
+                  <p>{mod.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {(pendingAction || pendingOskarAction) && <section className="pending-action-section" style={{ marginTop: 16 }}>
+          <div className="pending-action-heading"><div><p className="eyebrow">待处理的行动</p></div></div>
+          {pendingAction && pendingAction.actionPlan && <div style={{ marginTop: 8 }}>
+            <button className="text-button" style={{ color: "#C4884D", fontWeight: 700 }} onClick={() => { setGrowthModality("act"); setActiveSessionId(pendingAction.id); }}>🧘 ACT: {pendingAction.problem.slice(0, 20)}…</button>
+          </div>}
+          {pendingOskarAction && pendingOskarAction.smallAction && <div style={{ marginTop: 4 }}>
+            <button className="text-button" style={{ color: "#5B9BD5", fontWeight: 700 }} onClick={() => { setGrowthModality("oskar"); setActiveOskarId(pendingOskarAction.id); }}>🎯 OSKAR: {pendingOskarAction.topic.slice(0, 20)}…</button>
+          </div>}
+        </section>}
+      </>;
+    })(),
     record: <>
       <div className="record-subtabs">
         <button className={recordSub === "journal" ? "selected" : ""} onClick={() => setRecordSub("journal")}><PenLine size={16}/> 日记</button>
@@ -2108,7 +2199,7 @@ function CoachApp({ username, switchToAba, logout }: { username: string; switchT
       <p>一个安全、温和、不评判的空间</p>
     </header>
     <section className={`coach-content ${tab === "chat" ? "coach-chat-content" : ""}`}>{page}{tab === "knowledge" && <button className="coach-logout" onClick={logout}>退出登录</button>}</section>
-    <nav className="coach-nav">{navItems.map(([id, label, Icon]) => <button className={tab === id ? "active" : ""} onClick={() => setTab(id)} key={id}><Icon/><span>{label}</span></button>)}</nav>
+    <nav className="coach-nav">{navItems.map(([id, label, Icon]) => <button className={tab === id ? "active" : ""} onClick={() => { setTab(id as CoachTab); if (id === "growth") { setGrowthModality(null); setActiveSessionId(null); setActiveOskarId(null); } }} key={id}><Icon/><span>{label}</span></button>)}</nav>
   </main>;
 }
 

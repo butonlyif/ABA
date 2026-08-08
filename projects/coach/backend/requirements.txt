@@ -1,4 +1,3 @@
-platform-shared @ file://../../../packages/shared
 fastapi
 uvicorn[standard]
 sqlalchemy

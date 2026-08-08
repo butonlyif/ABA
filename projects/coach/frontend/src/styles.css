@@ -584,6 +584,30 @@ button.small { padding: 7px 14px; font-size: 13px; }
 .growth-examples { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 11px 0; }
 .growth-examples button { min-height: 58px; padding: 9px 10px; border: 1px solid #e8ded0; border-radius: 13px; color: #716252; background: #fffdf9; font-size: 11px; line-height: 1.45; text-align: left; }
 .growth-examples button.selected { border-color: #927555; color: #57412b; background: #f5e8d5; font-weight: 700; }
+/* ─── 卡片画廊 ─── */
+.growth-recommend { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1.5px solid; border-radius: 18px; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.growth-recommend:active { transform: scale(.98); }
+.growth-recommend-badge { font-size: 10px; font-weight: 700; color: white; padding: 2px 8px; border-radius: 8px; letter-spacing: .04em; }
+.growth-recommend-icon { font-size: 28px; }
+.growth-recommend div { display: flex; flex-direction: column; gap: 2px; }
+.growth-recommend strong { font-size: 14px; }
+.growth-recommend small { font-size: 11px; color: #8b7d6e; }
+.modality-gallery { display: flex; flex-direction: column; gap: 10px; }
+.modality-card { display: grid; grid-template-columns: 52px 1fr; gap: 14px; align-items: center; padding: 16px; border: 1.5px solid #e8ded0; border-radius: 20px; background: white; text-align: left; cursor: pointer; transition: all .18s; }
+.modality-card:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.06); border-color: var(--mod-color); }
+.modality-card:active { transform: scale(.98); }
+.modality-card.active { border-color: var(--mod-color); background: var(--mod-bg); }
+.modality-card-icon { width: 52px; height: 52px; display: grid; place-items: center; font-size: 26px; border-radius: 16px; }
+.modality-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.modality-card-head { display: flex; align-items: center; gap: 8px; }
+.modality-card-name { font-size: 15px; font-weight: 700; }
+.modality-card-tag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+.modality-card-tag.pulse { animation: tagPulse 2s ease-in-out infinite; }
+@keyframes tagPulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
+.modality-card-body p { margin: 0; font-size: 12px; color: #847a6e; line-height: 1.5; }
+.modality-back { display: inline-flex; align-items: center; gap: 4px; padding: 8px 0; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #8b7d6e; cursor: pointer; transition: color .15s; }
+.modality-back:hover { color: #5d4e3a; }
+/* ─── 其余 growth 样式 ─── */
 .act-mode-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 13px 0 5px; }
 .act-mode-picker button { display: grid; gap: 3px; min-height: 68px; padding: 10px; border: 1px solid #e6dccb; border-radius: 14px; color: #766959; background: white; text-align: left; }
 .act-mode-picker button.selected { border-color: #9b7d59; background: #f6ead8; }

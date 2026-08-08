@@ -1,13 +1,8 @@
 fastapi
-uvicorn[standard]
-sqlalchemy
 pydantic-settings
+sqlalchemy
+psycopg[binary]
 argon2-cffi
 python-jose[cryptography]
 httpx
 boto3
-Pillow
-PyMuPDF
-redis
-rq
-python-multipart

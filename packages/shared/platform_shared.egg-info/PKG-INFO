@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: platform-shared
+Version: 0.1.0
+Summary: ABA 与 Coach 共享层：认证、数据库基座、共享模型与服务
+Requires-Python: >=3.10
+Requires-Dist: fastapi
+Requires-Dist: pydantic-settings
+Requires-Dist: sqlalchemy
+Requires-Dist: psycopg[binary]
+Requires-Dist: argon2-cffi
+Requires-Dist: python-jose[cryptography]
+Requires-Dist: httpx
+Requires-Dist: boto3

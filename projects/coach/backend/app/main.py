@@ -25,11 +25,20 @@ from app.schemas import (
     WeeklyReportExport,
 )
 from app.services.ai import generate
-from app.services.coach_content import articles, search, article, related, categories
+from app.services.coach_content import articles, search, article, related, categories, issue_stages
 from app.services.coach_weekly import generate_weekly_summary
 from app.services.context_builder import build_coach_context
 
 coach_router = APIRouter(prefix="/api/v1")
+
+
+# ====================================
+# Bootstrap（登录后获取当前用户信息）
+# ====================================
+
+@coach_router.get("/bootstrap")
+def bootstrap(user: User = Depends(current_user)):
+    return {"user": {"id": user.id, "username": user.username, "role": user.role}, "children": []}
 
 
 # ====================================
@@ -220,6 +229,12 @@ def get_coach_article(article_id: str, user: User = Depends(current_user)):
     if not item:
         raise HTTPException(404, "文章不存在")
     return {**item, "related": related(article_id)}
+
+
+@coach_router.get("/coach/issue-stages")
+def coach_issue_stages(user: User = Depends(current_user)):
+    """返回 OSKAR 成长路径阶段与任务定义。"""
+    return issue_stages()
 
 
 @coach_router.post("/coach/chat", response_model=ChatAnswer)

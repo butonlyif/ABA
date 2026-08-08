@@ -5,7 +5,7 @@ services:
       context: ..
       dockerfile: projects/aba/frontend/Dockerfile
     ports:
-      - "8080:80"
+      - "8501:80"
     depends_on:
       aba-api:
         condition: service_healthy
@@ -18,7 +18,7 @@ services:
       ABA_ENVIRONMENT: production
       ABA_DATABASE_URL: postgresql+psycopg://aba:${POSTGRES_PASSWORD}@postgres:5432/aba
       ABA_JWT_SECRET: ${ABA_JWT_SECRET}
-      ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8080}
+      ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8501}
       ABA_MINIMAX_API_KEY: ${ABA_MINIMAX_API_KEY}
       ABA_KNOWLEDGE_PATH: projects/aba/knowledge
       ABA_UPLOAD_PATH: /app/uploads
@@ -68,7 +68,7 @@ services:
       context: ..
       dockerfile: projects/coach/frontend/Dockerfile
     ports:
-      - "8081:80"
+      - "8503:80"
     depends_on:
       coach-api:
         condition: service_healthy
@@ -81,7 +81,7 @@ services:
       ABA_ENVIRONMENT: production
       ABA_DATABASE_URL: postgresql+psycopg://aba:${POSTGRES_PASSWORD}@postgres:5432/aba
       ABA_JWT_SECRET: ${ABA_JWT_SECRET}
-      ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8081}
+      ABA_CORS_ORIGINS: ${ABA_CORS_ORIGINS:-http://localhost:8503}
       ABA_MINIMAX_API_KEY: ${ABA_MINIMAX_API_KEY}
       ABA_KNOWLEDGE_PATH: projects/coach/knowledge
       ABA_REDIS_URL: redis://redis:6379/0

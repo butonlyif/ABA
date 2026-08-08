@@ -1969,7 +1969,7 @@ function App() {
     child: <ChildPage child={child}/>,
     training: <TrainingPage child={child}/>,
     progress: <ProgressPage child={child}/>,
-    me: <MePage username={user.username} child={child} logout={logout}/>
+    me: <MePage username={user.username} child={child} switchToCoach={() => location.href = `${location.protocol}//${location.hostname}:8503/`} logout={logout}/>
   }[tab];
   const nav = [
     ["home", "首页", Home], ["child", "孩子", Baby], ["training", "训练", Target],

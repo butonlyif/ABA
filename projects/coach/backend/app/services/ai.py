@@ -9,6 +9,74 @@ from platform_shared.services.http_client import outbound_http_client
 
 logger = logging.getLogger(__name__)
 
+# ─── OSKAR 解决方案聚焦 提示词与检测 ───
+_SOLUTION_KEYWORDS = [
+    "怎么办", "该怎么", "怎么解决", "有什么办法", "教教我", "我想改变",
+    "想解决", "想突破", "卡住了", "不知道怎么做", "不知道该怎么",
+    "不知道怎么办", "怎么办才好", "有什么建议", "怎么做才好",
+    "帮我出个主意", "指点", "方法", "出路", "怎么处理",
+    "有什么方法", "步骤", "计划", "下一步", "出路在哪",
+    "我想改变", "想改变自己", "帮我想想", "给我点建议",
+    "我不知道", "束手无策", "一头雾水", "毫无头绪", "无从下手",
+]
+_NEGATION_SIGNALS = [
+    "只想倾诉", "不用给建议", "先不用方法", "只要听就行",
+    "不用怎么办", "不想听建议", "先陪陪我", "不用帮我想",
+    "我就说说", "不用方案", "只是说说", "先不急着解决",
+    "只想被听见",
+]
+_OSKAR_CLOSING_KEYWORDS = [
+    "我知道了", "我明白了", "我知道该怎么做了", "我会试试",
+    "好我试试", "我试试看", "我懂了", "我明白了", "清楚了",
+    "谢谢你的引导", "有方向了", "不用再问了",
+]
+
+OSKAR_COACH_PROMPT = (
+    "\n\n## 当家长需要往前走一步时，用「解决方案聚焦」（SF）的 OSKAR 五步引导\n"
+    "你现在是 SF 教练，不是 ACT 陪伴者。你已经共情了对方，现在对方想突破了。\n\n"
+    "核心原则：\n"
+    "- 焦点在「想要的未来」而非「问题原因」\n"
+    "- 每次只问一个问题，简短自然\n"
+    "- 小步骤必须由对方自己说，你只问不指定\n"
+    "- 永远先肯定已有资源，再问下一步\n\n"
+    "五步顺序（每轮只推一步）：\n"
+    "- O 成果：站到对方的位置上(platform)，再引出未来完美画面 '你希望这次聊完带走什么？假如一夜之间事情好转了一点，明天早上你会先注意到什么不同？'\n"
+    "- S 量尺：让用户自评 '0-10你现在大概在几？是什么让你到了这个数而不是更低？'\n"
+    "- K 资源：找已有的筹码 '这个理想状态什么时候已经发生过哪怕一点点？你做了什么让它发生的？'\n"
+    "- A 行动：汇总肯定 → 邀请选一小步 '已经有很多在位了……你个人接下来的一小步是什么？'\n"
+    "- R 回顾：下次开场问 '什么变好了？你做了什么带来这个改变？'\n\n"
+    "重要：如果用户在 OSKAR 过程中回到强烈情绪，先共情再继续引导；如果用户说'我知道了/我明白了/我会试试'，"
+    "就结束 OSKAR 回到 ACT 陪伴模式。")
+_SOLUTION_FALLBACK = (
+    "你说的情况听起来不容易。如果你想往前走一步，我们可以停下来想一想："
+    "假如明天早上醒来感觉好了一点，你最想先注意到的一个变化是什么？"
+    "不用想整个解决方案，就一个你能看见的小信号。")
+
+
+def detect_solution_intent(message: str, history: list[dict] | None = None) -> bool:
+    """判定用户是否在「想求方案/想往前走一步」的意图。"""
+    if not message or not message.strip():
+        return False
+    text = message.strip().lower()
+    # 否定信号优先排除
+    for neg in _NEGATION_SIGNALS:
+        if neg in text:
+            return False
+    # 检查求助关键词
+    for kw in _SOLUTION_KEYWORDS:
+        if kw in text:
+            return True
+    return False
+
+
+def is_oskar_closing(message: str) -> bool:
+    """判定用户是否在发出关闭 OSKAR 的信号。"""
+    text = message.strip().lower()
+    for kw in _OSKAR_CLOSING_KEYWORDS:
+        if kw in text:
+            return True
+    return False
+
 
 @dataclass
 class AiCall:
@@ -24,6 +92,8 @@ class AiCall:
 
 def fallback_answer(product: str, message: str, sources: list[dict[str, str]]) -> str:
     if product == "coach":
+        if detect_solution_intent(message):
+            return _SOLUTION_FALLBACK
         return (
             "我在听。这里不用急着解释清楚，也不用马上解决它。"
             "可以先留意一下：当这个念头出现时，你的身体哪里最紧？"

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "platform-shared"
 version = "0.1.0"
@@ -7,15 +11,12 @@ dependencies = [
     "fastapi",
     "pydantic-settings",
     "sqlalchemy",
+    "psycopg[binary]",
     "argon2-cffi",
     "python-jose[cryptography]",
     "httpx",
     "boto3",
 ]
-
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["platform_shared*"]
